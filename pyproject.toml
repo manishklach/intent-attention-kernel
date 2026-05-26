@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intent-attention"
+version = "0.1.0"
+description = "Semantic Block Attention for Agentic Long-Context Inference"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "tabulate",
+]

@@ -18,7 +18,28 @@ intent to the KV execution layer. It does not claim GPU speedups yet.**
 
 ---
 
-## Thesis
+## Current Status
+
+| Area | Status |
+|---|---|
+| CPU-first prototype | Complete |
+| Router-to-kernel metadata | Implemented |
+| IntentQuant policy simulation | Implemented |
+| IntentQuant attention reference | Implemented |
+| Triton decode prototype | Optional, exists |
+| LLM validation harness | Exists (proxy only) |
+| GPU benchmark harness | Exists (no measured speedups yet) |
+| Measured GPU speedup | Not claimed |
+| Measured model quality | Not claimed |
+
+**Key docs:**
+- [Research Summary](docs/research_summary.md) — thesis, problem, proposed interface, limitations
+- [Reproducibility Guide](docs/reproducibility.md) — exact commands for CPU, dry-run, LLM, and GPU
+- [Validation Plan](docs/validation_plan.md) — quality ladder, proxy metrics, publishable-evidence bar
+- [GPU Benchmarking](docs/gpu_benchmarking.md) — fair baselines, hardware matrix, T4 caveat
+- [Results Template](docs/results_template.md) — tables to fill when running experiments
+
+---
 
 Long-context agentic inference is not just an attention problem. It is a KV
 execution problem.
@@ -40,7 +61,7 @@ and eventually schedule KV blocks more intelligently.
 
 ---
 
-## Five Pillars
+## System Components
 
 ### 1. Semantic KV Block Selection
 
@@ -52,52 +73,7 @@ attention over them.
 > Do not compute and then mask; expose structure early enough to avoid the
 > work.
 
-### 2. Dynamic Block Scoring
-
-Some blocks may be ambiguous. A lightweight scoring path can rank candidate
-blocks using query-to-block similarity. This is a heuristic prototype, not
-a trained router. It is meant to model the control-plane surface that a
-future runtime or kernel could consume.
-
-### 3. KV Quantization Modeling
-
-Long-context inference is often KV-bandwidth and KV-capacity constrained.
-Cold or selected KV pages may benefit from INT8-style quantization. Current
-quantization work is modeling and prototype-level only. No model accuracy,
-perplexity, or GPU throughput claim is made. Real benefit depends on
-dequant overhead, page reuse, bandwidth pressure, and hardware support.
-
-### 4. IntentQuant-KV: Intent-Aware Mixed-Precision KV Quantization
-
-Not every KV block deserves the same precision. `IntentQuantizer` assigns
-per-block precision (FP16, FP8, INT8, INT4, INT4_RESIDUAL, or SKIP) based
-on block policy, score, recency, and memory pressure. This is a policy
-simulator only — no real GPU quantization kernel is provided.
-
-### 6. IntentQuant Attention Kernel — Per-Block Quantized Attention
-
-Extends IntentQuant-KV into the selected-block attention path itself. Each
-selected block is individually quantized (via `fake_quantize_tensor`) and
-immediately dequantized (via `fake_dequantize_tensor`) before being
-concatenated and passed to dense attention. This is a CPU reference — the
-quantized path is intentionally slower to isolate reconstruction error
-mechanics without hardware fusion.
-
-```python
-from intent_attention.intent_quant_attention import (
-    intent_quant_attention_reference,
-    compare_intent_quant_to_fp16_selected,
-)
-```
-
-### 5. Speculative KV Prefetch Simulation
-
-Agentic decode often reuses similar KV regions over adjacent steps. A
-prefetcher can predict likely next-step KV pages. The current benchmark
-simulates hit rate and latency-hiding potential. Prefetch must never affect
-correctness. No real latency speedup is claimed without hardware validation.
-
-### 7. KV Block Router
+### 2. KV Block Router
 
 The KV Block Router is the missing **runtime-to-kernel policy layer**.
 It converts semantic context blocks into flat kernel-ready metadata:
@@ -118,6 +94,58 @@ meta = routing_to_kernel_metadata(routed, page_size=16)
 ```
 
 **The router is the policy layer. The kernel is the execution layer.**
+
+### 3. Dynamic Block Scoring
+
+Some blocks may be ambiguous. A lightweight scoring path can rank candidate
+blocks using query-to-block similarity. This is a heuristic prototype, not
+a trained router. It is meant to model the control-plane surface that a
+future runtime or kernel could consume.
+
+### 4. IntentQuant-KV: Intent-Aware Mixed-Precision KV Quantization
+
+Not every KV block deserves the same precision. `IntentQuantizer` assigns
+per-block precision (FP16, FP8, INT8, INT4, INT4_RESIDUAL, or SKIP) based
+on block policy, score, recency, and memory pressure. This is a policy
+simulator only — no real GPU quantization kernel is provided.
+
+### 5. IntentQuant Attention Reference — Per-Block Quantized Attention
+
+Extends IntentQuant-KV into the selected-block attention path itself. Each
+selected block is individually quantized (via `fake_quantize_tensor`) and
+immediately dequantized (via `fake_dequantize_tensor`) before being
+concatenated and passed to dense attention. This is a CPU reference — the
+quantized path is intentionally slower to isolate reconstruction error
+mechanics without hardware fusion.
+
+```python
+from intent_attention.intent_quant_attention import (
+    intent_quant_attention_reference,
+    compare_intent_quant_to_fp16_selected,
+)
+```
+
+### 6. Speculative KV Prefetch Simulation
+
+Agentic decode often reuses similar KV regions over adjacent steps. A
+prefetcher can predict likely next-step KV pages. The current benchmark
+simulates hit rate and latency-hiding potential. Prefetch must never affect
+correctness. No real latency speedup is claimed without hardware validation.
+
+### 7. Validation Harness
+
+Two experiment scripts validate the prototype pipeline without making claims:
+
+- `experiments/llm_quality_validation.py` — proxy perplexity validation on
+  small HuggingFace models. Applies fake quant/dequant to `past_key_values`
+  across multiple routing policies. Dry-run mode validates imports without
+  downloading models.
+- `experiments/gpu_decode_benchmark.py` — decode-step attention latency
+  benchmark across PyTorch SDPA, SelectedKV, Triton IntentQuant, xFormers,
+  and FlashAttention-2 (Ampere+ only). Dry-run mode detects hardware without
+  launching kernels.
+
+See `docs/validation_plan.md` and `docs/gpu_benchmarking.md` for details.
 
 ---
 

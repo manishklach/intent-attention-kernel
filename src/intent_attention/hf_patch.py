@@ -85,7 +85,7 @@ def _patch_sdpa_forward(
         ) -> torch.Tensor:
             nonlocal kv_tokens
             kv_tokens = key.size(-2)
-            return semantic_block_attention(query, key, value, layout, causal=is_causal)
+            return semantic_block_attention(query, key, value, layout, causal=False)
 
         F.scaled_dot_product_attention = sdpa_wrapper
         try:
@@ -120,7 +120,7 @@ def _patch_attn_method(
         if layout is None:
             return orig_attn(query, key, value, attention_mask, head_mask)
 
-        out = semantic_block_attention(query, key, value, layout, causal=True)
+        out = semantic_block_attention(query, key, value, layout, causal=False)
         _log_savings(module_name, key.size(-2), layout)
         return out, None
 

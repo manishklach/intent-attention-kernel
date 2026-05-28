@@ -1,3 +1,4 @@
+import pytest
 import torch
 from intent_attention.block_metadata import SemanticBlock, BlockPolicy, BlockLayout
 from intent_attention.reference import dense_attention, semantic_block_attention
@@ -98,11 +99,10 @@ def test_causal_does_not_look_ahead():
     assert torch.allclose(out, manual, atol=1e-5)
 
 
-def test_semantic_causal_attention():
+def test_semantic_causal_not_implemented():
     q = torch.randn(1, 2, 8, 32)
     k = torch.randn(1, 2, 16, 32)
     v = torch.randn(1, 2, 16, 32)
     layout = BlockLayout([SemanticBlock("a", 0, 16, BlockPolicy.ALWAYS)])
-    out = semantic_block_attention(q, k, v, layout, causal=True)
-    assert out.shape == (1, 2, 8, 32)
-    assert torch.isfinite(out).all()
+    with pytest.raises(NotImplementedError, match="query_positions"):
+        semantic_block_attention(q, k, v, layout, causal=True)

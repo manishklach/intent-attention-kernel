@@ -27,10 +27,12 @@ selected KV tokens, causal masking may be unnecessary.  For **prefill**
 or **multi-query blocks**, logical page order is not sufficient — the GPU
 kernel must still support causal masking or query-position-aware masking.
 
-The current CPU reference implements causal masking via a `triu(-inf)`
-mask on the selected KV sub-tensor.  A future GPU kernel will need an
-equivalent mechanism (e.g., per-page token bounds or query-position
-comparison).
+The current CPU reference does **not** implement causal selected-block
+attention because the compacted selected-KV tensor loses the original
+token-position relationship.  A future GPU kernel will need explicit
+query-position-aware masking (e.g., per-page token bounds or
+query-position comparison) to support causal semantics on selected KV
+pages.
 
 ### Partial Pages and Block Boundaries
 

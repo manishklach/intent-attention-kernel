@@ -290,6 +290,12 @@ python benchmarks/bench_block_router.py
 
 # Run end-to-end router demo
 python examples/end_to_end_router_demo.py
+
+# Dry-run LLM quality validation (validates imports only, no model download)
+python experiments/llm_quality_validation.py --dry-run
+
+# Dry-run GPU decode benchmark (validates imports, no GPU required)
+python experiments/gpu_decode_benchmark.py --dry-run
 ```
 
 ---
@@ -407,6 +413,56 @@ for multiple router configurations.
 > dispatch overhead, gather overhead, cache behavior, tensor size, and
 > small-batch effects.
 
+### Experiments
+
+#### LLM Quality Validation (`experiments/llm_quality_validation.py`)
+
+Proxy perplexity validation on small HuggingFace models (SmolLM2, TinyLlama).
+Runs baseline vs quantized-pass_key_values comparison across multiple routing
+policies. **This is a proxy only** — the quantization is applied outside the
+native model forward pass and does not represent production KV-cache
+quantization.
+
+```bash
+# Dry-run (validate imports, no model download)
+python experiments/llm_quality_validation.py --dry-run
+
+# Run with SmolLM2-135M on Wikitext-2 (requires transformers + datasets)
+python experiments/llm_quality_validation.py --model HuggingFaceTB/SmolLM2-135M
+```
+
+Results include: baseline perplexity, quantized perplexity per policy,
+reconstruction error metrics (MSE, max-abs, cosine), and selected/skipped
+block counts per routing config.
+
+| Policy | KV tokens kept | Est. bytes saved |
+|---|---|---|
+| conservative | 100% (no skip) | 0% |
+| balanced | ~50% | ~50% |
+| aggressive | ~25% | ~75% |
+
+#### GPU Decode Benchmark (`experiments/gpu_decode_benchmark.py`)
+
+Measures decode-step attention latency on available GPU hardware across
+multiple backends: PyTorch SDPA, selected-KV gather + SDPA, optional Triton
+IntentQuant decode, optional xFormers, and optional FlashAttention.
+
+```bash
+# Dry-run (validate imports, detect hardware)
+python experiments/gpu_decode_benchmark.py --dry-run
+
+# Full benchmark on GPU
+python experiments/gpu_decode_benchmark.py \
+    --batch 1 --heads 32 --head-dim 64 \
+    --kv-len 65536 --selected-frac 0.25 \
+    --iters 100 --warmup 20
+```
+
+**T4 caveat:** FlashAttention-2 is skipped on Turing GPUs (CC < 8.0). Use
+PyTorch SDPA or xFormers as baselines on T4.
+
+See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
+
 ---
 
 ## What Is Implemented
@@ -434,6 +490,10 @@ for multiple router configurations.
 - [x] routing-to-kernel metadata conversion (selected pages, precision, prefetch)
 - [x] per-block routing decisions and reasons
 - [x] End-to-end demo script (examples/end_to_end_router_demo.py)
+- [x] LLM quality validation experiment (experiments/llm_quality_validation.py)
+- [x] GPU decode benchmark experiment (experiments/gpu_decode_benchmark.py)
+- [x] Validation plan docs (docs/validation_plan.md)
+- [x] GPU benchmarking guide (docs/gpu_benchmarking.md)
 
 ---
 
@@ -456,6 +516,12 @@ for multiple router configurations.
   per-page token offset masks for correctness.
 - CPU Ratio is not a GPU speedup.
 - Analytical KV/FLOP savings are not measured GPU performance.
+- **Validation experiments use proxy KV-cache quantization** — post-hoc
+  quantize/dequantize on past_key_values, not real in-place KV cache
+  quantization. Results do not guarantee production quality preservation.
+- **GPU benchmarks are local measurements only.** No GPU speedup claim
+  is made from any single config, GPU, or software version. Results vary
+  by hardware, driver, CUDA version, and system load.
 
 ---
 
@@ -474,17 +540,22 @@ intent-attention-kernel/
         bench_triton_intent_quant_attention.py  Optional Triton decode attention
         bench_kv_quant.py         KV cache quantisation memory analysis
         bench_prefetch.py         Speculative prefetch decode simulation
-    docs/
-        architecture.md           Module design
-        attention_layout.md       Block policies
-        block_router.md           KV Block Router design and contract
-        dynamic_scoring.md        Dynamic scoring design
-        gpu_kernel_plan.md        Future GPU mapping
-        intent_quant.md           Intent-aware mixed-precision KV quantization
-        kv_quantization.md        KV quantization modeling
-        prefetch.md               Speculative prefetch simulation
-        repo_metadata.md          Suggestions for GitHub settings
-        results_cpu.md            Detailed CPU results notes
+        docs/
+            architecture.md           Module design
+            attention_layout.md       Block policies
+            block_router.md           KV Block Router design and contract
+            dynamic_scoring.md        Dynamic scoring design
+            gpu_benchmarking.md       GPU benchmarking guide & fair baselines
+            gpu_kernel_plan.md        Future GPU mapping
+            intent_quant.md           Intent-aware mixed-precision KV quantization
+            kv_quantization.md        KV quantization modeling
+            prefetch.md               Speculative prefetch simulation
+            repo_metadata.md          Suggestions for GitHub settings
+            results_cpu.md            Detailed CPU results notes
+            validation_plan.md        LLM quality validation plan
+        experiments/
+            gpu_decode_benchmark.py   GPU decode attention benchmark
+            llm_quality_validation.py Proxy perplexity validation
     src/intent_attention/
         __init__.py               Public API
         _enum.py                  StrEnum base

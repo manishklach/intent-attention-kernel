@@ -63,3 +63,9 @@ jobs:
 
       - name: Run end-to-end router demo
         run: python examples/end_to_end_router_demo.py
+
+      - name: Dry-run LLM quality validation
+        run: python experiments/llm_quality_validation.py --dry-run
+
+      - name: Dry-run GPU decode benchmark
+        run: python experiments/gpu_decode_benchmark.py --dry-run

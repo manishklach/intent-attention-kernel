@@ -64,18 +64,38 @@ def test_all_policies_integration():
     assert dbg["total_kv_tokens"] == 128
 
 
-def test_causal_raises_not_implemented():
-    q = torch.randn(1, 1, 8, 32)
-    k = torch.randn(1, 1, 16, 32)
-    v = torch.randn(1, 1, 16, 32)
+def test_causal_attention_shape():
+    q = torch.randn(1, 2, 8, 32)
+    k = torch.randn(1, 2, 16, 32)
+    v = torch.randn(1, 2, 16, 32)
+    out = dense_attention(q, k, v, causal=True)
+    assert out.shape == (1, 2, 8, 32)
+    assert torch.isfinite(out).all()
+    assert not torch.isnan(out).any()
+
+
+def test_causal_does_not_look_ahead():
+    q = torch.randn(1, 1, 4, 8)
+    k = torch.eye(4, 8).unsqueeze(0).unsqueeze(0)
+    v = torch.ones(1, 1, 4, 8)
+    out = dense_attention(q, k, v, causal=True)
+    with torch.no_grad():
+        manual = torch.matmul(
+            torch.softmax(
+                torch.matmul(q, k.transpose(-2, -1)) / (8 ** 0.5)
+                + torch.triu(torch.full((4, 4), float("-inf")), diagonal=1),
+                dim=-1,
+            ),
+            v,
+        )
+    assert torch.allclose(out, manual, atol=1e-5)
+
+
+def test_semantic_causal_attention():
+    q = torch.randn(1, 2, 8, 32)
+    k = torch.randn(1, 2, 16, 32)
+    v = torch.randn(1, 2, 16, 32)
     layout = BlockLayout([SemanticBlock("a", 0, 16, BlockPolicy.ALWAYS)])
-    with pytest.raises(NotImplementedError, match="Causal"):
-        semantic_block_attention(q, k, v, layout, causal=True)
-
-
-def test_dense_attention_causal_raises():
-    q = torch.randn(1, 1, 8, 32)
-    k = torch.randn(1, 1, 16, 32)
-    v = torch.randn(1, 1, 16, 32)
-    with pytest.raises(NotImplementedError, match="Causal"):
-        dense_attention(q, k, v, causal=True)
+    out = semantic_block_attention(q, k, v, layout, causal=True)
+    assert out.shape == (1, 2, 8, 32)
+    assert torch.isfinite(out).all()

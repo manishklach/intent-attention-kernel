@@ -162,6 +162,49 @@ python benchmarks/bench_intent_quant.py
 
 ---
 
+## Runtime-to-Kernel Contract
+
+This repo models a contract where the runtime produces policy metadata
+and the kernel consumes it selectively. The kernel does not magically
+discover which context blocks are useful.
+
+```text
+Agentic runtime
+    |
+    v
+Semantic block layout
+    |
+    v
+KV Block Router
+    |
+    +--> block selection (policy + score + recency)
+    +--> precision assignment (IntentQuantizer)
+    +--> prefetch candidates
+    |
+    v
+Kernel metadata
+    |
+    +--> selected_page_ids
+    +--> block_precision_by_page
+    +--> prefetch_page_ids
+    +--> routing reasons
+    |
+    v
+Selected-block / IntentQuant attention path
+```
+
+| Layer | Responsibility |
+|---|---|
+| Semantic block layout | Describe context regions (policies, scores, bounds) |
+| KV Block Router | Decide which blocks to select/skip/quantize/prefetch |
+| IntentQuantizer | Assign per-block precision (FP16/INT8/SKIP/...) |
+| Kernel metadata | Flat page IDs + precision tags for the execution layer |
+| Attention reference | CPU dense or selected-block attention over metadata |
+
+The router is the policy layer. The kernel is the execution layer.
+
+---
+
 ## Architecture
 
 ```text
@@ -244,6 +287,9 @@ python benchmarks/bench_triton_intent_quant_attention.py
 
 # Run KV Block Router benchmark (CPU)
 python benchmarks/bench_block_router.py
+
+# Run end-to-end router demo
+python examples/end_to_end_router_demo.py
 ```
 
 ---
@@ -380,13 +426,14 @@ for multiple router configurations.
 - [x] vLLM-style paged-attention bridge
 - [x] Intent-aware mixed-precision KV quantization policy simulator (IntentQuantizer)
 - [x] Fake quant/dequant reconstruction metrics (FP16/FP8/INT8/INT4/INT4_RESIDUAL)
-- [x] pytest coverage (130 tests)
+- [x] pytest coverage (153 tests)
 - [x] CPU benchmark scripts (9 benchmarks)
 - [x] IntentQuant Attention Kernel — per-block fake quant/dequant in selected-block attention path
 - [x] Triton IntentQuant decode attention prototype (optional, GPU-only)
 - [x] CPU-first KV Block Router — runtime-to-kernel policy layer
 - [x] routing-to-kernel metadata conversion (selected pages, precision, prefetch)
 - [x] per-block routing decisions and reasons
+- [x] End-to-end demo script (examples/end_to_end_router_demo.py)
 
 ---
 
@@ -404,6 +451,9 @@ for multiple router configurations.
 - **The KV Block Router is heuristic, not learned.**
 - **Selected pages are not guaranteed optimal.**
 - **No accuracy or perplexity validation has been performed on routing decisions.**
+- **Partial-page bounds are not implemented.** The router selects full pages
+  even if a block starts or ends mid-page. A future kernel would need
+  per-page token offset masks for correctness.
 - CPU Ratio is not a GPU speedup.
 - Analytical KV/FLOP savings are not measured GPU performance.
 

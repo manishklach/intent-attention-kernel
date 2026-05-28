@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import auto
 from typing import Dict, List, Optional, Tuple
 
@@ -8,7 +8,6 @@ import torch
 
 from ._enum import StrEnum
 from .block_metadata import BlockLayout, BlockPolicy, SemanticBlock
-from .block_scorer import BlockScorer
 from .intent_quant import (
     KVPrecision,
     IntentQuantizer,
@@ -76,10 +75,6 @@ def compute_block_scores(
         scores[name] = sim
 
     return scores
-
-
-def _token_count(block: SemanticBlock) -> int:
-    return block.end - block.start
 
 
 class BlockRouter:
@@ -291,10 +286,12 @@ class BlockRouter:
         page_size: int,
     ) -> List[int]:
         ids: List[int] = []
+        seen: set = set()
         for b in self.selected_blocks(routed_blocks):
             for t in range(b.start, b.end):
                 pid = t // page_size
-                if not ids or ids[-1] != pid:
+                if pid not in seen:
+                    seen.add(pid)
                     ids.append(pid)
         return ids
 
@@ -340,6 +337,12 @@ class BlockRouter:
         return deduped[: cfg.prefetch_top_k]
 
     def routing_summary(self, routed_blocks: List[RoutedBlock]) -> Dict:
+        """
+        Return a summary dict of routing decisions.
+
+        Byte estimates assume head_dim=64, K+V tensors, and fp16 baseline.
+        These are analytical cost estimates, not measured performance.
+        """
         selected = self.selected_blocks(routed_blocks)
         skipped = self.skipped_blocks(routed_blocks)
         total_tokens = sum(b.end - b.start for b in routed_blocks)

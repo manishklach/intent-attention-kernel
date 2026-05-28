@@ -137,6 +137,36 @@ produce correct output if prefetch pages are not available.
 
 ---
 
+## Router-to-Kernel Contract
+
+The router emits flat metadata that a kernel consumes:
+
+```
+KV Block Router
+    |
+    v
+selected_page_ids      — which pages to load (logical order, deduplicated)
+prefetch_page_ids      — which pages may be useful next step
+block_precision_by_page — precision per page (FP16, INT8, etc.)
+selected_block_names   — human-readable list of selected blocks
+skipped_block_names    — human-readable list of skipped blocks
+reasons_by_block       — why each block received its decision
+```
+
+**The router is the policy layer. The kernel is the execution layer.**
+
+The router decides what is useful (which blocks, which precision).
+The kernel decides how to execute that decision efficiently (load, dequant,
+compute attention).
+
+This separation means:
+- Policies can be tuned, swapped, or learned without touching the kernel.
+- The kernel does not need to know about semantic policies, scores, or
+  recency — it just receives page IDs and precision tags.
+- Auditing is straightforward: routing reasons are passed through metadata.
+
+---
+
 ## Kernel metadata output
 
 ```python

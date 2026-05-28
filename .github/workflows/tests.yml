@@ -60,3 +60,6 @@ jobs:
 
       - name: Run KV Block Router benchmark
         run: python benchmarks/bench_block_router.py
+
+      - name: Run end-to-end router demo
+        run: python examples/end_to_end_router_demo.py

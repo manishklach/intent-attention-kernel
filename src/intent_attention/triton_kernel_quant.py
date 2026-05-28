@@ -33,6 +33,16 @@ def is_cuda_available() -> bool:
     return _cuda_available
 
 
+def _unique_preserve_order(pages: torch.Tensor) -> torch.Tensor:
+    seen: set[int] = set()
+    out: list[int] = []
+    for p in pages.tolist():
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return torch.tensor(out, dtype=pages.dtype, device=pages.device)
+
+
 def _can_run_gpu_kernel() -> bool:
     if not _triton_available or not _cuda_available:
         return False
@@ -375,7 +385,7 @@ def _triton_impl_quant(
     selected_layout = BlockLayout(selected_blocks)
     bt = BlockTable(block_size=page_size)
     pages, _ = bt.create_block_table(selected_layout, kv_len)
-    pages = torch.unique(pages).to(device=q.device, dtype=torch.int32)
+    pages = _unique_preserve_order(pages).to(device=q.device, dtype=torch.int32)
     n_selected = pages.shape[0]
 
     batch, heads = q.shape[0], q.shape[1]

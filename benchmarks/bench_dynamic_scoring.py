@@ -8,7 +8,9 @@ from intent_attention.synthetic_traces import generate_agentic_layout
 
 
 def main() -> None:
-    n_traces = 100
+    torch.set_num_threads(1)
+
+    n_traces = 20
     threshold = 0.5
     head_dim = 64
 
@@ -20,13 +22,13 @@ def main() -> None:
     print()
 
     for seed in range(n_traces):
-        layout = generate_agentic_layout(4096, seed=seed)
+        layout = generate_agentic_layout(1024, seed=seed)
         attend_blocks = [b for b in layout.blocks if b.policy == BlockPolicy.ATTEND]
         if not attend_blocks:
             continue
 
-        q = torch.randn(1, 8, 128, head_dim)
-        k = torch.randn(1, 8, 4096, head_dim)
+        q = torch.randn(1, 4, 32, head_dim)
+        k = torch.randn(1, 4, 1024, head_dim)
 
         key_reps = []
         for block in attend_blocks:
@@ -46,7 +48,7 @@ def main() -> None:
     pct_above = 100.0 * total_above / total_attend if total_attend else 0.0
     pct_below = 100.0 * total_below / total_attend if total_attend else 0.0
 
-    print("Dynamic scoring summary (100 synthetic traces)")
+    print(f"Dynamic scoring summary ({n_traces} synthetic traces)")
     print("=" * 50)
     print(f"  Total ATTEND blocks encountered:  {total_attend}")
     print(f"  Attended   (score >= {threshold}):  {total_above:>6}  ({pct_above:.1f}%)")

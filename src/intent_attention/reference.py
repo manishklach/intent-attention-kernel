@@ -99,7 +99,22 @@ def semantic_block_attention(
     idx = torch.tensor(selected_indices, dtype=torch.long, device=k.device)
     selected_k = k.index_select(-2, idx)
     selected_v = v.index_select(-2, idx)
-    output = dense_attention(q, selected_k, selected_v, causal=causal)
+
+    if causal:
+        q_len = q.size(-2)
+        kv_len = len(selected_indices)
+        causal_mask = torch.where(
+            idx[None, :] <= torch.arange(q_len, device=k.device)[:, None],
+            0.0,
+            float("-inf"),
+        )
+        scale = 1.0 / math.sqrt(q.size(-1))
+        scores = torch.matmul(q, selected_k.transpose(-2, -1)) * scale
+        scores = scores + causal_mask
+        attn_weights = torch.softmax(scores, dim=-1)
+        output = torch.matmul(attn_weights, selected_v)
+    else:
+        output = dense_attention(q, selected_k, selected_v, causal=False)
 
     if return_debug:
         debug = {

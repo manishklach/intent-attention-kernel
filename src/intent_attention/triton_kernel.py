@@ -1,55 +1,48 @@
+from __future__ import annotations
+
 import torch
 
-def is_triton_available() -> bool:
+_triton_available: bool = False
+_cuda_available: bool = torch.cuda.is_available()
+
+
+def _probe_triton() -> bool:
     try:
-        import triton
-        import triton.language as tl
+        import triton  # noqa: F401
+        import triton.language as tl  # noqa: F401
         return True
     except ImportError:
         return False
 
+
+_triton_available = _probe_triton()
+
+
+def is_triton_available() -> bool:
+    return _triton_available
+
+
 def is_cuda_available() -> bool:
-    return torch.cuda.is_available()
+    return _cuda_available
 
-if is_triton_available():
-    import triton
-    import triton.language as tl
 
-    @triton.jit
-    def _semantic_attention_kernel(
-        Q, K, V, Out,
-        block_table,
-        num_pages,
-        stride_qz, stride_qh, stride_qm, stride_qk,
-        stride_kz, stride_kh, stride_kn, stride_kk,
-        stride_vz, stride_vh, stride_vn, stride_vk,
-        stride_oz, stride_oh, stride_om, stride_on,
-        num_heads, head_dim: tl.constexpr,
-        BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
-    ):
-        pid_m = tl.program_id(0)
-        
-        # Kernel stub: Iterates only over physical pages from block_table
-        for page_idx in range(num_pages):
-            physical_page = tl.load(block_table + page_idx)
-            # Paged Attention Math...
-        pass
+def semantic_block_attention_triton(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    layout,
+) -> torch.Tensor:
+    """Triton-accelerated semantic block attention.
 
-def semantic_block_attention_triton(q, k, v, layout):
-    """
-    Triton-accelerated semantic block attention.
-    Falls back to CPU reference if CUDA/Triton is missing.
+    Falls back to the CPU reference when Triton/CUDA is unavailable.
+    Raises NotImplementedError when hardware is present — the GPU kernel
+    is a future implementation requiring hardware validation.
     """
     if not is_triton_available() or not is_cuda_available():
-        from .reference import semantic_block_attention
-        return semantic_block_attention(q, k, v, layout)
-        
-    from .block_table import BlockTable
-    bt = BlockTable(block_size=64)
-    table, num_tokens = bt.create_block_table(layout, k.size(-2))
-    
-    if num_tokens == 0:
-        return torch.zeros_like(q)
-        
-    out = torch.empty_like(q)
-    raise NotImplementedError("Full GPU kernel execution requires hardware validation.")
+        from .reference import semantic_block_attention as _fallback
+        return _fallback(q, k, v, layout)
+
+    raise NotImplementedError(
+        "GPU kernel execution is a future implementation requiring hardware validation. "
+        "Falling back is disabled when both Triton and CUDA are available."
+    )

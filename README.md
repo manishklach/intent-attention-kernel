@@ -158,6 +158,26 @@ Two experiment scripts validate the prototype pipeline without making claims:
 
 See `docs/validation_plan.md` and `docs/gpu_benchmarking.md` for details.
 
+### 9. Fused Selected-Quant Decode Kernel
+
+An experimental Triton kernel (`fused_selected_quant_decode.py`) that fuses
+runtime semantic page selection, mixed-precision (FP16/INT8/SKIP) page loading,
+and decode-step attention into a single GPU kernel. It consumes BlockRouter
+metadata directly and is the execution-layer backend for intent-aware KV
+execution.
+
+```bash
+# Dry-run (validate imports, detect hardware)
+python benchmarks/bench_fused_selected_quant_decode.py --dry-run
+
+# Full benchmark on GPU (requires Triton + CUDA)
+python benchmarks/bench_fused_selected_quant_decode.py \
+    --batch 1 --heads 8 --head-dim 64 \
+    --num-pages 64 --selected-frac 0.25
+```
+
+**No GPU speedup is claimed.** This is a research prototype.
+
 ---
 
 ## IntentQuant-KV

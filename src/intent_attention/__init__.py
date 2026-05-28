@@ -15,6 +15,13 @@ from .cost_model import (
     semantic_attention_cost,
     savings_report,
 )
+from .fused_selected_quant_decode import (
+    FusedDecodeConfig,
+    FusedKVPrecision,
+    fused_selected_quant_decode,
+    fused_selected_quant_decode_reference,
+    metadata_to_kernel_tensors,
+)
 from .intent_quant_attention import (
     intent_quant_attention_reference,
     compare_intent_quant_to_fp16_selected,
@@ -87,4 +94,9 @@ __all__ = [
     "make_page_tables_from_selected_pages",
     "fake_int8_pages_from_fp16",
     "make_precision_tensor",
+    "FusedDecodeConfig",
+    "FusedKVPrecision",
+    "fused_selected_quant_decode",
+    "fused_selected_quant_decode_reference",
+    "metadata_to_kernel_tensors",
 ]

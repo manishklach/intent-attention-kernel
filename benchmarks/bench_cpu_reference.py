@@ -12,7 +12,7 @@ def main():
     print()
 
     sizes = [512, 1024, 2048, 4096]
-    header = f"{'Tokens':>8} {'Dense (s)':>12} {'Semantic (s)':>14} {'Speedup':>10}"
+    header = f"{'Tokens':>8} {'Dense (s)':>12} {'Semantic (s)':>14} {'CPU Ratio':>10}"
     print(header)
     print("-" * len(header))
 
@@ -30,8 +30,8 @@ def main():
         semantic_block_attention(q, k, v, layout)
         sem_time = time.perf_counter() - t0
 
-        speedup = dense_time / sem_time if sem_time > 0 else float("inf")
-        print(f"{size:>8} {dense_time:>12.4f} {sem_time:>14.4f} {speedup:>10.2f}x")
+        ratio = dense_time / sem_time if sem_time > 0 else float("inf")
+        print(f"{size:>8} {dense_time:>12.4f} {sem_time:>14.4f} {ratio:>10.2f}x")
 
     print()
     print("Note: Actual GPU speedups depend on memory bandwidth, kernel fusion,")

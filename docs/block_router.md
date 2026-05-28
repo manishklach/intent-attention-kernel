@@ -202,6 +202,63 @@ meta = routing_to_kernel_metadata(routed, page_size=16)
 
 ---
 
+## Benchmark
+
+```bash
+python benchmarks/bench_block_router.py
+```
+
+Sample output (CPU, Intel i7-13700H, Python 3.11):
+
+```
+===========================================================================
+  KV Block Router — CPU Routing & Cost Benchmark
+===========================================================================
+
+  This is a routing and cost-model benchmark, not a GPU speedup claim.
+
+---------------------------------------------------------------------------
+
+Layout: 8,192 tokens, 7 blocks
+
+  default (top_k=8, threshold=0.35, mem_pressure=0.5)
+    Total blocks:    7
+    Selected blocks: 6
+    Skipped blocks:  1
+    Selected tokens: 7168
+    Selected pages:  448 (page_size=16)
+    FP16 KV (MB):    1.75
+    Routed KV (MB):  0.922
+    Bytes saved %:   47.32
+    Precision dist:  {'FP16': 384, 'FP8': 1664, 'INT8': 2048, 'INT4_RESIDUAL': 3072}
+
+  aggro (top_k=4, threshold=0.5, mem_pressure=0.8)
+    Routed KV (MB):  0.703
+    Bytes saved %:   59.82
+    Precision dist:  {'FP8': 3968, 'FP16': 128, 'INT4': 3072}
+
+  relaxed (top_k=16, threshold=0.2, mem_pressure=0.1)
+    Bytes saved %:   47.32
+    Precision dist:  {'FP16': 384, 'FP8': 1664, 'INT8': 2048, 'INT4_RESIDUAL': 3072}
+
+---------------------------------------------------------------------------
+
+Layout: 131,072 tokens, 7 blocks
+
+  default
+    Selected tokens: 114688 (7168 pages)
+    FP16 KV: 28.0 MB → Routed KV: 14.75 MB → 47.32% saved
+
+  aggro
+    Routed KV: 11.25 MB → 59.82% saved
+    Precision: FP8 63K, INT4 49K, FP16 2K
+```
+
+All figures are analytical cost estimates on CPU. No GPU speedup is claimed
+or implied.
+
+---
+
 ## Limitations
 
 - **Heuristic scoring only.** The router uses `score_threshold` and

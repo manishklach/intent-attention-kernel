@@ -264,6 +264,12 @@ class TestAdaptiveFormatAttentionReference:
         kv_pages = torch.randn(NP, PS, D, dtype=torch.float16)
         kv_pages_formats = torch.zeros(NP, dtype=torch.int8)  # All format 0
         
+        # Create dummy tensors for the full reference function
+        kv_pages_i8 = torch.zeros_like(kv_pages, dtype=torch.int8)
+        kv_pages_scales = torch.zeros(NP, dtype=torch.float16)
+        kv_pages_indices = torch.zeros(NP, 2, dtype=torch.int64)
+        kv_pages_values = torch.zeros(NP, 2, dtype=torch.float16)
+        
         # Select first 2 pages
         page_table = torch.zeros(B, H, 2, dtype=torch.int32)
         page_counts = torch.full((B, H), 2, dtype=torch.int32)
@@ -275,14 +281,9 @@ class TestAdaptiveFormatAttentionReference:
         config = Config()
         
         out1 = adaptive_format_attention_reference(
-            query, kv_pages, kv_pages_i8=torch.zeros_like(kv_pages, dtype=torch.int8),
-            kv_pages_scales=torch.zeros(NP, dtype=torch.float16),
-            kv_pages_indices=torch.zeros(NP, 2, dtype=torch.int64),
-            kv_pages_values=torch.zeros(NP, 2, dtype=torch.float16),
-            kv_pages_formats=kv_pages_formats,
-            page_table=page_table,
-            page_counts=page_counts,
-            config=config,
+            query, kv_pages, kv_pages_i8, kv_pages_scales,
+            kv_pages_indices, kv_pages_values, kv_pages_formats,
+            page_table, page_counts, config,
         )
         
         out2 = adaptive_format_attention_reference_simple(

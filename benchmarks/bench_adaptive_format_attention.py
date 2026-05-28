@@ -8,7 +8,7 @@ Skips cleanly on systems without required dependencies.
 No GPU speedup is claimed.
 """
 
-from __future__ import arguments
+from __future__ import annotations
 
 import argparse
 import sys
@@ -131,7 +131,7 @@ def main():
     if NP >= 3:
         kv_pages_formats[::max(1, NP//3)] = 1  # Every third page: INT8
         kv_pages_formats[::max(1, NP//2)] = 2  # Every second page: SPARSE
-
+    
     # Page table: select first n_selected pages
     page_table = torch.zeros(B, H, n_selected, dtype=torch.int32, device=device)
     page_counts = torch.full((B, H), n_selected, dtype=torch.int32, device=device)
@@ -139,7 +139,12 @@ def main():
         for h_idx in range(H):
             for p in range(n_selected):
                 page_table[b_idx, h_idx, p] = p
-
+    
+    # Create full KV tensors for dense and semantic block attention
+    # For dense attention, we concatenate all pages along the sequence dimension
+    kv_fp16_full = kv_pages_fp16.view(1, NP * PS, D).expand(B, H, -1, -1)  # [B, H, NP*PS, D]
+    kv_i8_full = kv_pages_i8.view(1, NP * PS, D).expand(B, H, -1, -1)     # [B, H, NP*PS, D]
+    
     print(f"  Benchmark: B={B} H={H} D={D} KV_pages={NP} PS={PS}")
     print(f"  Selected: {n_selected}/{NP} ({args.selected_frac:.0%})")
     print(f"  Sparsity K: {K}")
@@ -149,26 +154,32 @@ def main():
     print(f"  Device: {device}")
     print(f"  Iterations: {args.iters}  Warmup: {args.warmup}")
     print()
-
+    
     # Create a dummy layout for semantic block attention comparison
     # Just use the first selected block as a simple layout
     layout = BlockLayout([
         SemanticBlock("selected_region", 0, n_selected * PS, BlockPolicy.ATTEND, score=0.9)
     ])
-
+    
     # 1. Dense attention baseline
-    dense_ms = _bench_dense_attention(q, kv_pages_fp16, kv_pages_fp16, args.iters, args.warmup)
+    dense_ms = _bench_dense_attention(q, kv_fp16_full, kv_fp16_full, args.iters, args.warmup)
     print(f"  Dense attention:      {dense_ms:8.3f} ms")
-
+    
     # 2. Standard selected-block attention
-    semantic_ms = _bench_semantic_block_attention(q, kv_pages_fp16, kv_pages_fp16, layout, args.iters, args.warmup)
+    semantic_ms = _bench_semantic_block_attention(q, kv_fp16_full, kv_fp16_full, layout, args.iters, args.warmup)
     print(f"  Semantic block attn:  {semantic_ms:8.3f} ms")
-
+    
     # 3. Adaptive format attention
+    class AdaptiveFormatConfig:
+        def __init__(self, page_size, head_dim):
+            self.page_size = page_size
+            self.head_dim = head_dim
+    
+    adaptive_config = AdaptiveFormatConfig(PS, D)
     adaptive_ms = _bench_adaptive_format(
         q, kv_pages_fp16, kv_pages_i8, kv_pages_scales,
         kv_pages_indices, kv_pages_values, kv_pages_formats,
-        page_table, page_counts, None, args.iters, args.warmup,
+        page_table, page_counts, adaptive_config, args.iters, args.warmup,
     )
     print(f"  Adaptive format attn: {adaptive_ms:8.3f} ms")
 

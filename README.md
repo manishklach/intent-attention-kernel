@@ -178,6 +178,14 @@ python benchmarks/bench_fused_selected_quant_decode.py \
 
 **No GPU speedup is claimed.** This is a research prototype.
 
+### 10. Adaptive Format KV Attention Reference
+
+The Adaptive Format KV Attention reference models KV cache pages stored in different physical formats, such as dense FP16 pages, INT8 quantized pages, and sparse pages.
+
+This extends the repo’s intent-aware KV execution model beyond page selection and precision tags. The runtime can now reason about the actual representation of each KV page and dispatch the attention path accordingly.
+
+This is a CPU/reference implementation only. It does not claim GPU speedup or production-ready format dispatch.
+
 ---
 
 ## IntentQuant-KV
@@ -542,8 +550,8 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] vLLM-style paged-attention bridge
 - [x] Intent-aware mixed-precision KV quantization policy simulator (IntentQuantizer)
 - [x] Fake quant/dequant reconstruction metrics (FP16/FP8/INT8/INT4/INT4_RESIDUAL)
-- [x] pytest coverage (153 tests)
-- [x] CPU benchmark scripts (9 benchmarks)
+- [x] pytest coverage (160 tests)
+- [x] CPU benchmark scripts (10 benchmarks)
 - [x] IntentQuant Attention Kernel — per-block fake quant/dequant in selected-block attention path
 - [x] Triton IntentQuant decode attention prototype (optional, GPU-only)
 - [x] CPU-first KV Block Router — runtime-to-kernel policy layer
@@ -554,6 +562,7 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] GPU decode benchmark experiment (experiments/gpu_decode_benchmark.py)
 - [x] Validation plan docs (docs/validation_plan.md)
 - [x] GPU benchmarking guide (docs/gpu_benchmarking.md)
+- [x] Adaptive Format KV Attention Reference — CPU reference for heterogeneous KV page formats (FP16, INT8, sparse)
 
 ---
 

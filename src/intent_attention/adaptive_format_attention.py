@@ -60,16 +60,16 @@ def adaptive_format_attention_reference(
 
     for b_idx in range(B):
         for h_idx in range(H):
-            n_pages = int(page_counts[h_idx, b_idx].item())
+            n_pages = int(page_counts[b_idx, h_idx].item())
             query_vec = query[b_idx, h_idx, 0, :].float()  # [D]
 
             # Online softmax accumulators
-            m_i = -float("inf")
-            l_i = 0.0
-            acc = torch.zeros(D, dtype=torch.float32)
+            m_i = torch.tensor(-float("inf"), device=query_vec.device)
+            l_i = torch.tensor(0.0, device=query_vec.device)
+            acc = torch.zeros(D, dtype=torch.float32, device=query_vec.device)
 
             for p_idx in range(n_pages):
-                page_id = int(page_table[h_idx, b_idx, p_idx].item())
+                page_id = int(page_table[b_idx, h_idx, p_idx].item())
                 format_tag = int(kv_pages_formats[page_id].item())
 
                 # Reconstruct page based on format
@@ -100,22 +100,20 @@ def adaptive_format_attention_reference(
                     page_k = torch.zeros(page_size, D, dtype=torch.float32)
                     page_v = torch.zeros(page_size, D, dtype=torch.float32)
 
-                # Compute block-level attention: score = query @ page_key^T / sqrt(D)
-                # query_vec: [D], page_k: [page_size, D] -> scores: [page_size]
-                scores = torch.mm(query_vec.unsqueeze(0), page_k.transpose(0, 1)).squeeze(0) / math.sqrt(D)
-                
-                # Online softmax update
-                m_new = torch.max(m_i, torch.max(scores))
-                if m_new.item() == -float("inf"):
-                    m_new = torch.tensor(0.0)
-                alpha = torch.exp(m_i - m_new)
-                p = torch.exp(scores - m_new)
-                l_i = alpha * l_i + torch.sum(p)
-                acc = alpha * acc + torch.mm(p.unsqueeze(0), page_v).squeeze(0)
-                m_i = m_new
+                    # Compute block-level attention: score = query @ page_key^T / sqrt(D)
+                    # query_vec: [D], page_k: [page_size, D] -> scores: [page_size]
+                    scores = torch.mm(query_vec.unsqueeze(0), page_k.transpose(0, 1)).squeeze(0) / math.sqrt(D)
+                    
+                    # Online softmax update
+                    m_new = torch.maximum(m_i, torch.max(scores))
+                    alpha = torch.exp(m_i - m_new)
+                    p = torch.exp(scores - m_new)
+                    l_i = alpha * l_i + torch.sum(p)
+                    acc = alpha * acc + torch.mm(p.unsqueeze(0), page_v).squeeze(0)
+                    m_i = m_new
 
             # Normalize and store output
-            out[b_idx, h_idx, 0, :] = (acc / max(l_i, 1e-8)).half()
+            out[b_idx, h_idx, 0, :] = (acc / torch.max(l_i, torch.tensor(1e-8, device=l_i.device))).half()
 
     return out
 
@@ -149,29 +147,27 @@ def adaptive_format_attention_reference_simple(
 
     for b_idx in range(B):
         for h_idx in range(H):
-            n_pages = int(page_counts[h_idx, b_idx].item())
+            n_pages = int(page_counts[b_idx, h_idx].item())
             query_vec = query[b_idx, h_idx, 0, :].float()
-
-            m_i = -float("inf")
-            l_i = 0.0
-            acc = torch.zeros(D, dtype=torch.float32)
-
+            
+            m_i = torch.tensor(-float("inf"), device=query_vec.device)
+            l_i = torch.tensor(0.0, device=query_vec.device)
+            acc = torch.zeros(D, dtype=torch.float32, device=query_vec.device)
+            
             for p_idx in range(n_pages):
-                page_id = int(page_table[h_idx, b_idx, p_idx].item())
+                page_id = int(page_table[b_idx, h_idx, p_idx].item())
                 # In simple version, ignore format and just use dense storage
                 page_k = kv_pages[page_id].float()
                 page_v = kv_pages[page_id].float()
-
+                
                 scores = torch.mm(query_vec.unsqueeze(0), page_k.transpose(0, 1)).squeeze(0) / math.sqrt(D)
-                m_new = torch.max(m_i, torch.max(scores))
-                if m_new.item() == -float("inf"):
-                    m_new = torch.tensor(0.0)
+                m_new = torch.maximum(m_i, torch.max(scores))
                 alpha = torch.exp(m_i - m_new)
                 p = torch.exp(scores - m_new)
                 l_i = alpha * l_i + torch.sum(p)
                 acc = alpha * acc + torch.mm(p.unsqueeze(0), page_v).squeeze(0)
                 m_i = m_new
-
-            out[b_idx, h_idx, 0, :] = (acc / max(l_i, 1e-8)).half()
+            
+            out[b_idx, h_idx, 0, :] = (acc / torch.max(l_i, torch.tensor(1e-8, device=l_i.device))).half()
 
     return out

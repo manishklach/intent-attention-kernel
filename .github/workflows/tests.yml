@@ -42,3 +42,12 @@ jobs:
 
       - name: Run CPU reference benchmark
         run: python benchmarks/bench_cpu_reference.py
+
+      - name: Run KV quantization benchmark
+        run: python benchmarks/bench_kv_quant.py
+
+      - name: Run prefetch simulation benchmark
+        run: python benchmarks/bench_prefetch.py
+
+      - name: Run dynamic scoring benchmark
+        run: python benchmarks/bench_dynamic_scoring.py

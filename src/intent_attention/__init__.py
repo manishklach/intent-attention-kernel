@@ -1,11 +1,14 @@
 from .block_metadata import BlockPolicy, SemanticBlock, BlockLayout
-from .reference import dense_attention, semantic_block_attention
+from .block_scorer import BlockScorer
+from .block_table import BlockTable
 from .cost_model import (
     attention_flops,
     kv_read_bytes,
     semantic_attention_cost,
     savings_report,
 )
+from .prefetch import BlockPrefetcher
+from .reference import dense_attention, semantic_block_attention
 from .synthetic_traces import (
     generate_agentic_layout,
     random_layout,
@@ -16,12 +19,14 @@ from .triton_kernel import (
     is_cuda_available,
     semantic_block_attention_triton,
 )
-from .block_table import BlockTable
 
 __all__ = [
     "BlockPolicy",
     "SemanticBlock",
     "BlockLayout",
+    "BlockScorer",
+    "BlockTable",
+    "BlockPrefetcher",
     "dense_attention",
     "semantic_block_attention",
     "attention_flops",
@@ -34,5 +39,4 @@ __all__ = [
     "is_triton_available",
     "is_cuda_available",
     "semantic_block_attention_triton",
-    "BlockTable",
 ]

@@ -91,5 +91,32 @@ compiled and launched when Triton and CUDA are present; on CPU-only
 machines it falls back to the PyTorch reference implementation.
 Performance measurements on real NVIDIA hardware are still needed.
 
+### Optional KV Dequant in the Attention Loop
+
+If the KV cache is stored in INT8 format, the kernel must dequantize
+each page before or during the attention computation:
+
+- Dequant inside the attention loop adds ALU and register pressure.
+- Dequant before the loop (materialize fp16 pages) adds memory pressure.
+- The ideal trade-off depends on page reuse, dequant cost, and
+  bandwidth savings from reading INT8 instead of fp16.
+
+### Quantization Timing
+
+Quantization (fp16 to INT8) should ideally happen:
+
+- At page creation time (prefill) to avoid redundant conversion.
+- At cold-page transition (when a page is first selected after a long
+  period of disuse).
+- **Not** repeatedly every step — re-quantizing a hot page every step
+  would waste compute and may not save bandwidth.
+
+### Page Deduplication
+
+When multiple logical blocks map to the same physical page, the kernel
+must deduplicate page IDs while preserving the logical token order.
+Arbitrary sorting of page IDs would break causal masking and
+position-dependent computations.
+
 **Every statement in this document describes a design goal or
 analysis direction, not a validated performance claim.**

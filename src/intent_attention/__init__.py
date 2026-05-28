@@ -7,6 +7,14 @@ from .cost_model import (
     semantic_attention_cost,
     savings_report,
 )
+from .intent_quant import (
+    KVPrecision,
+    QuantPolicy,
+    IntentQuantizer,
+    fake_quantize_tensor,
+    fake_dequantize_tensor,
+    compute_quant_error,
+)
 from .prefetch import BlockPrefetcher
 from .reference import dense_attention, semantic_block_attention
 from .synthetic_traces import (
@@ -27,6 +35,12 @@ __all__ = [
     "BlockScorer",
     "BlockTable",
     "BlockPrefetcher",
+    "KVPrecision",
+    "QuantPolicy",
+    "IntentQuantizer",
+    "fake_quantize_tensor",
+    "fake_dequantize_tensor",
+    "compute_quant_error",
     "dense_attention",
     "semantic_block_attention",
     "attention_flops",

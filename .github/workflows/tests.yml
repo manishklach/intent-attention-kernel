@@ -51,3 +51,6 @@ jobs:
 
       - name: Run dynamic scoring benchmark
         run: python benchmarks/bench_dynamic_scoring.py
+
+      - name: Run intent quantization benchmark
+        run: python benchmarks/bench_intent_quant.py

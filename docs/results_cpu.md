@@ -29,10 +29,10 @@ CPU benchmark cannot predict GPU performance.
 
 ```
 Tokens    Dense (s)   Semantic (s)   CPU Ratio
-     512       0.0032         0.0030       1.08x
-    1024       0.0054         0.0058       0.94x
-    2048       0.0089         0.0100       0.89x
-    4096       0.0163         0.0140       1.16x
+      512       0.0032         0.0030       1.08x
+     1024       0.0054         0.0058       0.94x
+     2048       0.0089         0.0100       0.89x
+     4096       0.0163         0.0140       1.16x
 ```
 
 ## Interpreting CPU Ratio
@@ -50,6 +50,41 @@ Tokens    Dense (s)   Semantic (s)   CPU Ratio
 ```bash
 python benchmarks/bench_cpu_reference.py
 ```
+
+## Fused Selected-Quant Decode Benchmark
+
+The fused selected-quant decode benchmark measures the CPU reference path for the
+fused kernel (which simulates the Triton kernel's algorithm on CPU). This
+benchmark is primarily for correctness validation and algorithmic analysis.
+
+### Sample Output (CPU reference)
+
+```
+Benchmark: B=1 H=8 D=64 NP=64 PS=16 selected=16/64 (25%)
+Device: cpu
+Iterations: 50  Warmup: 10
+
+SDPA (full KV):        0.807 ms
+Fused selected-quant:   19.454 ms
+Ratio (SDPA / Fused): 0.04x
+
+Note: ratio > 1 means fused kernel is faster than full SDPA.
+This is an untuned prototype. No GPU speedup is claimed.
+Results depend on hardware, precision distribution,
+and selected-frac.
+```
+
+### Interpreting Fused Selected-Quant Results
+
+- **SDPA (full KV)**: PyTorch SDPA attention over all KV tokens (baseline)
+- **Fused selected-quant**: CPU reference implementation of the fused kernel
+  algorithm (simulating what the Triton kernel would do)
+- **Ratio (SDPA / Fused)**: 
+  - > 1.0 means the fused kernel algorithm would be faster than full SDPA
+  - < 1.0 means the fused kernel algorithm would be slower than full SDPA
+- **Important**: This CPU reference **does not measure GPU performance**. 
+  The actual Triton kernel would have different performance characteristics
+  due to GPU parallelism, memory bandwidth, and fused execution.
 
 ## Analytical Estimates
 

@@ -132,7 +132,18 @@ prefetcher can predict likely next-step KV pages. The current benchmark
 simulates hit rate and latency-hiding potential. Prefetch must never affect
 correctness. No real latency speedup is claimed without hardware validation.
 
-### 7. Validation Harness
+### 7. Optional Triton Decode-Attention Prototype
+
+An optional GPU-only kernel (`triton_intent_quant_attention.py`) implements
+single-token decode attention over selected KV pages with per-page precision
+(FP16 or INT8). It skips cleanly on systems without Triton or CUDA and is
+not required for any CPU test or benchmark. **No GPU speedup is claimed.**
+
+```bash
+python benchmarks/bench_triton_intent_quant_attention.py
+```
+
+### 8. Validation Harness
 
 Two experiment scripts validate the prototype pipeline without making claims:
 
@@ -223,11 +234,12 @@ Selected-block / IntentQuant attention path
 
 | Layer | Responsibility |
 |---|---|
-| Semantic block layout | Describe context regions (policies, scores, bounds) |
-| KV Block Router | Decide which blocks to select/skip/quantize/prefetch |
-| IntentQuantizer | Assign per-block precision (FP16/INT8/SKIP/...) |
-| Kernel metadata | Flat page IDs + precision tags for the execution layer |
-| Attention reference | CPU dense or selected-block attention over metadata |
+| Semantic block layout | Describe context regions, policies, scores, and token bounds |
+| KV Block Router | Decide which blocks to select, skip, quantize, or prefetch |
+| IntentQuantizer | Assign per-block precision such as FP16, FP8, INT8, INT4, or SKIP |
+| Kernel metadata | Flatten routing output into selected page IDs, precision tags, and prefetch hints |
+| Attention reference | Run CPU dense or selected-block attention over the selected metadata |
+| Future Triton/CUDA kernel | Consume the same metadata in a fused GPU execution path |
 
 The router is the policy layer. The kernel is the execution layer.
 
@@ -266,11 +278,11 @@ Future Triton/CUDA kernel path
 ## Dense vs Masked vs Intent-Aware
 
 | Approach | What it knows | Work avoided today | Future GPU goal |
-|---|---|---|---|
+|---|---|---:|---|
 | Dense attention | Flat token stream | None | Baseline |
 | Masked attention | Token/block mask | Usually limited | May still process masked regions |
-| Selected-block attention | Semantic block bounds + policy | CPU gather over selected K/V | Avoid loading skipped KV pages |
-| Intent-aware KV execution | Policy + score + quant + prefetch hints | Analytical/simulated today | Fuse selection, dequant, and prefetch into kernel/runtime |
+| Selected-block attention | Semantic block bounds and policy | CPU gather over selected K/V | Avoid loading skipped KV pages |
+| Intent-aware KV execution | Policy, score, quantization, and prefetch hints | Analytical/simulated today | Fuse selection, dequant, and prefetch into kernel/runtime |
 
 > Do not compute and then mask; expose structure early enough to avoid the
 > work.

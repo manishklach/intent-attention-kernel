@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intent Attention Kernel — Intent-Aware KV Execution for Agentic Long-Context Inference</title>
+<meta name="description" content="A CPU-first research prototype exploring semantic KV block selection, dynamic scoring, IntentQuant-KV mixed-precision policies, speculative prefetch simulation, and future Triton/CUDA kernels for agentic long-context inference.">
+<meta property="og:title" content="Intent Attention Kernel — Intent-Aware KV Execution for Agentic Long-Context Inference">
+<meta property="og:description" content="A CPU-first research prototype exploring semantic KV block selection, dynamic scoring, IntentQuant-KV mixed-precision policies, speculative prefetch simulation, and future Triton/CUDA kernels for agentic long-context inference.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://github.com/manishklach/intent-attention-kernel">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Intent Attention Kernel — Intent-Aware KV Execution for Agentic Long-Context Inference">
+<meta name="twitter:description" content="A CPU-first research prototype for intent-aware KV execution: block selection, dynamic scoring, mixed-precision quantization, prefetch simulation, and future GPU kernels.">
+<style>
+:root{--bg-primary:#0a0a0f;--bg-secondary:#111118;--bg-card:#16161f;--bg-card-hover:#1c1c28;--bg-elevated:#1e1e2e;--border-subtle:#2a2a3e;--border-accent:#3a3a5e;--text-primary:#e8e8f0;--text-secondary:#9898b8;--text-muted:#686888;--accent-blue:#6ba4ff;--accent-cyan:#58d4e8;--accent-purple:#a78bfa;--accent-orange:#fbbf24;--accent-red:#f87171;--accent-green:#6ee7b7;--gradient-hero:linear-gradient(135deg,#0a0a1f 0%,#141428 30%,#1a1a35 60%,#0f0f20 100%);--gradient-card:linear-gradient(135deg,#1a1a2e 0%,#16161f 100%);--gradient-accent:linear-gradient(135deg,#6ba4ff,#a78bfa);--shadow-card:0 4px 24px rgba(0,0,0,0.4);--shadow-glow:0 0 40px rgba(107,164,255,0.08);--radius-sm:6px;--radius-md:12px;--radius-lg:20px;--font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;--font-mono:'JetBrains Mono','Fira Code','SF Mono','Cascadia Code','Consolas',monospace}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-primary);line-height:1.7;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(circle at 20% 50%,rgba(107,164,255,0.03) 0%,transparent 50%),radial-gradient(circle at 80% 50%,rgba(167,139,250,0.03) 0%,transparent 50%),radial-gradient(circle at 50% 0%,rgba(88,212,232,0.02) 0%,transparent 50%);pointer-events:none;z-index:0}
+#progress-bar{position:fixed;top:0;left:0;height:2px;background:var(--gradient-accent);z-index:1001;transition:width .1s ease;width:0%}
+nav{position:sticky;top:0;z-index:1000;background:rgba(10,10,15,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border-subtle);padding:0 2rem}
+nav ul{display:flex;list-style:none;max-width:1200px;margin:0 auto;overflow-x:auto;gap:.25rem;padding:0;scrollbar-width:none}
+nav ul::-webkit-scrollbar{display:none}
+nav li{flex-shrink:0}
+nav a{display:block;padding:.85rem 1rem;color:var(--text-secondary);text-decoration:none;font-size:.8rem;font-weight:500;letter-spacing:.02em;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;white-space:nowrap}
+nav a:hover{color:var(--text-primary)}
+nav a.active{color:var(--accent-blue);border-bottom-color:var(--accent-blue)}
+.container{max-width:1100px;margin:0 auto;padding:0 2rem;position:relative;z-index:1}
+section{padding:5rem 0}
+h2{font-size:1.8rem;font-weight:700;margin-bottom:.75rem;background:var(--gradient-accent);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+h2+p{color:var(--text-secondary);font-size:1.05rem;margin-bottom:2.5rem;max-width:720px}
+h3{font-size:1.25rem;font-weight:600;margin-bottom:.75rem;color:var(--text-primary)}
+.hero{min-height:85vh;display:flex;align-items:center;justify-content:center;text-align:center;background:var(--gradient-hero);position:relative;overflow:hidden;padding:6rem 2rem 4rem}
+.hero::after{content:'';position:absolute;inset:0;background-image:radial-gradient(circle at 30% 20%,rgba(107,164,255,0.06) 0%,transparent 40%),radial-gradient(circle at 70% 80%,rgba(167,139,250,0.06) 0%,transparent 40%);pointer-events:none}
+.hero-content{max-width:900px;position:relative;z-index:1}
+.hero-badge{display:inline-block;padding:.35rem 1rem;border-radius:100px;background:rgba(107,164,255,0.1);border:1px solid rgba(107,164,255,0.2);color:var(--accent-blue);font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:1.5rem}
+.hero h1{font-size:3.5rem;font-weight:800;line-height:1.1;margin-bottom:.75rem;background:linear-gradient(135deg,#e8e8f0 0%,#a78bfa 40%,#6ba4ff 70%,#58d4e8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-subtitle{font-size:1.2rem;color:var(--text-secondary);margin-bottom:.75rem;font-weight:500}
+.hero-tagline{font-size:.95rem;color:var(--text-muted);font-style:italic;margin-bottom:2.5rem;max-width:700px;margin-left:auto;margin-right:auto;line-height:1.6}
+.hero-buttons{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-bottom:3rem}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1.75rem;border-radius:var(--radius-sm);font-size:.9rem;font-weight:600;text-decoration:none;transition:all .25s ease;border:none;cursor:pointer;font-family:inherit}
+.btn-primary{background:var(--gradient-accent);color:#fff;box-shadow:0 4px 20px rgba(107,164,255,0.25)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 6px 30px rgba(107,164,255,0.35)}
+.btn-secondary{background:transparent;color:var(--text-primary);border:1px solid var(--border-accent)}
+.btn-secondary:hover{background:var(--bg-card-hover);border-color:var(--accent-blue)}
+.btn-ghost{background:transparent;color:var(--text-secondary);border:1px solid transparent}
+.btn-ghost:hover{color:var(--text-primary);border-color:var(--border-subtle)}
+.hero-diagram{margin-top:2rem;padding:2rem;background:rgba(22,22,31,0.6);border:1px solid var(--border-subtle);border-radius:var(--radius-md);backdrop-filter:blur(10px)}
+.hero-diagram svg{width:100%;max-width:700px;height:auto;display:block;margin:0 auto}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem}
+.card{background:var(--gradient-card);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:2rem;transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
+.card:hover{transform:translateY(-4px);box-shadow:var(--shadow-glow);border-color:var(--border-accent)}
+.card-icon{width:44px;height:44px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;font-size:1.25rem;margin-bottom:1rem;background:rgba(107,164,255,0.1);color:var(--accent-blue)}
+.card h3{font-size:1.1rem;margin-bottom:.5rem}
+.card p{color:var(--text-secondary);font-size:.9rem;line-height:1.65}
+.card-tag{display:inline-block;padding:.2rem .6rem;border-radius:4px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+.tag-blue{background:rgba(107,164,255,0.15);color:var(--accent-blue)}
+.tag-purple{background:rgba(167,139,250,0.15);color:var(--accent-purple)}
+.tag-cyan{background:rgba(88,212,232,0.15);color:var(--accent-cyan)}
+.tag-orange{background:rgba(251,191,36,0.15);color:var(--accent-orange)}
+.tag-green{background:rgba(110,231,183,0.15);color:var(--accent-green)}
+.callout{padding:1.5rem 2rem;border-radius:var(--radius-md);margin:1.5rem 0;border-left:3px solid}
+.callout-blue{background:rgba(107,164,255,0.06);border-color:var(--accent-blue)}
+.callout-blue strong{color:var(--accent-blue)}
+.callout-orange{background:rgba(251,191,36,0.06);border-color:var(--accent-orange)}
+.callout-orange strong{color:var(--accent-orange)}
+.callout-red{background:rgba(248,113,113,0.06);border-color:var(--accent-red)}
+.callout-red strong{color:var(--accent-red)}
+.callout-green{background:rgba(110,231,183,0.06);border-color:var(--accent-green)}
+.callout-green strong{color:var(--accent-green)}
+.callout p{margin:.25rem 0;font-size:.95rem;color:var(--text-secondary)}
+.highlight-quote{text-align:center;padding:3rem 2rem;margin:2rem 0;border-top:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle)}
+.highlight-quote p{font-size:1.35rem;font-weight:500;color:var(--text-primary);max-width:750px;margin:0 auto;line-height:1.5}
+.highlight-quote .attr{font-size:.85rem;color:var(--text-muted);margin-top:.75rem;font-weight:400}
+.block-strip{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;margin:2rem 0}
+.block-strip-item{padding:.6rem 1rem;border-radius:var(--radius-sm);font-size:.75rem;font-weight:600;font-family:var(--font-mono);letter-spacing:.02em;text-align:center;border:1px solid}
+.block-always{background:rgba(107,164,255,0.12);border-color:rgba(107,164,255,0.3);color:var(--accent-blue)}
+.block-recent{background:rgba(88,212,232,0.12);border-color:rgba(88,212,232,0.3);color:var(--accent-cyan)}
+.block-attend-high{background:rgba(110,231,183,0.12);border-color:rgba(110,231,183,0.3);color:var(--accent-green)}
+.block-attend-low{background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.2);color:var(--accent-purple)}
+.block-skip{background:rgba(104,104,136,0.1);border-color:rgba(104,104,136,0.2);color:var(--text-muted)}
+.block-recent2{background:rgba(251,191,36,0.1);border-color:rgba(251,191,36,0.25);color:var(--accent-orange)}
+.arch-diagram{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:2.5rem;margin:2rem 0}
+.arch-grid{display:grid;grid-template-columns:1fr 1fr;gap:2rem}
+.arch-col h3{font-size:.9rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:1rem}
+.arch-node{padding:.75rem 1rem;margin-bottom:.5rem;border-radius:var(--radius-sm);background:var(--bg-elevated);border:1px solid var(--border-subtle);font-size:.85rem;color:var(--text-secondary);transition:border-color .2s}
+.arch-node:hover{border-color:var(--border-accent)}
+.arch-node .label{color:var(--text-primary);font-weight:600}
+.arch-flow{text-align:center;color:var(--text-muted);font-size:.8rem;padding:.25rem 0;font-family:var(--font-mono)}
+.arch-center{grid-column:1/-1;text-align:center;padding:1.5rem;background:var(--bg-elevated);border:1px solid var(--border-accent);border-radius:var(--radius-md);margin:.5rem 0}
+.arch-center .label{color:var(--accent-blue);font-weight:700;font-size:1rem}
+.code-block{background:#0d0d14;border:1px solid #1e1e2e;border-radius:var(--radius-md);margin:1.5rem 0;overflow:hidden}
+.code-header{display:flex;justify-content:space-between;align-items:center;padding:.5rem 1rem;background:#12121a;border-bottom:1px solid #1e1e2e;font-size:.75rem;color:var(--text-muted)}
+.copy-btn{background:transparent;border:1px solid var(--border-subtle);color:var(--text-muted);padding:.25rem .6rem;border-radius:4px;font-size:.7rem;cursor:pointer;transition:all .2s;font-family:inherit}
+.copy-btn:hover{border-color:var(--accent-blue);color:var(--accent-blue)}
+.code-block pre{padding:1.25rem;overflow-x:auto;font-family:var(--font-mono);font-size:.82rem;line-height:1.65;color:#d4d4e8;tab-size:4}
+.code-block code{font-family:inherit}
+.code-keyword{color:#a78bfa}
+.code-comment{color:#5a5a7a}
+.code-string{color:#6ee7b7}
+.code-number{color:#fbbf24}
+.code-class{color:#6ba4ff}
+.code-func{color:#58d4e8}
+.table-wrap{overflow-x:auto;margin:1.5rem 0}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+thead th{background:#12121a;padding:.85rem 1rem;text-align:left;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
+tbody td{padding:.85rem 1rem;border-bottom:1px solid rgba(42,42,62,0.5);color:var(--text-secondary)}
+tbody tr:hover td{background:rgba(107,164,255,0.03)}
+tbody td:first-child{color:var(--text-primary);font-weight:500}
+.precision-ladder{display:flex;flex-direction:column;gap:1rem;margin:2rem 0}
+.precision-tier{display:flex;align-items:center;gap:1rem;padding:1rem 1.5rem;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);background:var(--bg-card)}
+.precision-tier .level{font-family:var(--font-mono);font-weight:700;font-size:.95rem;min-width:120px}
+.precision-tier .desc{color:var(--text-secondary);font-size:.88rem;flex:1}
+.prec-fp16 .level{color:var(--accent-blue)}
+.prec-fp8 .level{color:var(--accent-cyan)}
+.prec-int8 .level{color:var(--accent-green)}
+.prec-int4r .level{color:var(--accent-orange)}
+.prec-int4 .level{color:var(--accent-red)}
+.prec-skip .level{color:var(--text-muted)}
+.bench-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
+.bench-card{padding:1.5rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);background:var(--bg-card)}
+.bench-card h4{font-size:.9rem;color:var(--text-primary);margin-bottom:.4rem}
+.bench-card .purpose{font-size:.82rem;color:var(--text-secondary);margin-bottom:.6rem}
+.bench-card .not-prove{font-size:.78rem;color:var(--text-muted)}
+.bench-card .not-prove strong{color:var(--accent-red)}
+.limitation-box{background:rgba(248,113,113,0.05);border:1px solid rgba(248,113,113,0.2);border-radius:var(--radius-md);padding:1.5rem 2rem;margin:1.5rem 0}
+.limitation-box h4{color:var(--accent-red);margin-bottom:.5rem}
+.limitation-box ul{list-style:disc;padding-left:1.5rem;color:var(--text-secondary);font-size:.9rem}
+.limitation-box li{margin-bottom:.35rem}
+.not-claimed{background:rgba(248,113,113,0.06);border:2px solid rgba(248,113,113,0.2);border-radius:var(--radius-md);padding:2rem;margin:2rem 0}
+.not-claimed h3{color:var(--accent-red);margin-bottom:1rem}
+.not-claimed ul{list-style:none;padding:0}
+.not-claimed li{padding:.4rem 0;padding-left:1.5rem;position:relative;color:var(--text-secondary);font-size:.9rem}
+.not-claimed li::before{content:'!';position:absolute;left:0;color:var(--accent-red);font-weight:700}
+.roadmap{display:flex;flex-direction:column;gap:0;position:relative;padding-left:2rem;margin:2rem 0}
+.roadmap::before{content:'';position:absolute;left:.5rem;top:.5rem;bottom:.5rem;width:2px;background:linear-gradient(to bottom,var(--accent-blue),var(--accent-purple),transparent)}
+.roadmap-item{position:relative;padding:1rem 1.5rem}
+.roadmap-item::before{content:'';position:absolute;left:-1.65rem;top:1.4rem;width:10px;height:10px;border-radius:50%;background:var(--accent-blue);border:2px solid var(--bg-primary)}
+.roadmap-item:nth-child(1)::before{background:var(--accent-blue)}
+.roadmap-item:nth-child(2)::before{background:var(--accent-cyan)}
+.roadmap-item:nth-child(3)::before{background:var(--accent-green)}
+.roadmap-item:nth-child(4)::before{background:var(--accent-purple)}
+.roadmap-item:nth-child(5)::before{background:var(--accent-orange)}
+.roadmap-item:nth-child(6)::before{background:var(--accent-red)}
+.roadmap-item:nth-child(7)::before{background:var(--accent-cyan)}
+.roadmap-item .phase{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.25rem}
+.roadmap-item:nth-child(1) .phase{color:var(--accent-blue)}
+.roadmap-item:nth-child(2) .phase{color:var(--accent-cyan)}
+.roadmap-item:nth-child(3) .phase{color:var(--accent-green)}
+.roadmap-item:nth-child(4) .phase{color:var(--accent-purple)}
+.roadmap-item:nth-child(5) .phase{color:var(--accent-orange)}
+.roadmap-item:nth-child(6) .phase{color:var(--accent-red)}
+.roadmap-item:nth-child(7) .phase{color:var(--accent-cyan)}
+.roadmap-item h4{font-size:1rem}
+.roadmap-item p{color:var(--text-secondary);font-size:.85rem;margin-top:.25rem}
+.checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.5rem;margin:1.5rem 0}
+.checklist-item{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;border-radius:var(--radius-sm);background:var(--bg-card);border:1px solid var(--border-subtle);font-size:.88rem;color:var(--text-secondary)}
+.checklist-item .check{color:var(--accent-green);font-weight:700}
+.gh-cta{text-align:center;padding:4rem 2rem;border-top:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle);margin:2rem 0}
+.gh-cta h2{-webkit-text-fill-color:var(--text-primary);color:var(--text-primary);background:none}
+.gh-cta .repo-url{font-family:var(--font-mono);font-size:1rem;color:var(--accent-blue);margin:1rem 0;word-break:break-all}
+.gh-cta .btn{margin-top:1rem}
+footer{text-align:center;padding:3rem 2rem;color:var(--text-muted);font-size:.8rem;border-top:1px solid var(--border-subtle)}
+footer a{color:var(--accent-blue);text-decoration:none}
+@media(max-width:768px){
+.hero h1{font-size:2.2rem}
+.hero-subtitle{font-size:1rem}
+.arch-grid{grid-template-columns:1fr}
+.card-grid{grid-template-columns:1fr}
+.bench-grid{grid-template-columns:1fr}
+.checklist{grid-template-columns:1fr}
+nav{padding:0 1rem}
+nav a{padding:.7rem .6rem;font-size:.75rem}
+.hero{padding:4rem 1rem 3rem}
+section{padding:3rem 0}
+.container{padding:0 1rem}
+}
+</style>
+</head>
+<body>
+<div id="progress-bar"></div>
+<nav>
+<ul>
+<li><a href="#hero">Home</a></li>
+<li><a href="#why">Why</a></li>
+<li><a href="#problem">Problem</a></li>
+<li><a href="#core">Core Idea</a></li>
+<li><a href="#pillars">Pillars</a></li>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#comparison">Comparison</a></li>
+<li><a href="#intentquant">IntentQuant</a></li>
+<li><a href="#benchmarks">Benchmarks</a></li>
+<li><a href="#causal">Causal</a></li>
+<li><a href="#limits">Limits</a></li>
+<li><a href="#roadmap">Roadmap</a></li>
+</ul>
+</nav>
+<section class="hero" id="hero">
+<div class="hero-content">
+<div class="hero-badge">CPU-First Research Prototype</div>
+<h1>Intent Attention Kernel</h1>
+<p class="hero-subtitle">Intent-Aware KV Execution for Agentic Long-Context Inference</p>
+<p class="hero-tagline">"Attention should not pretend context is flat — and KV execution should not pretend every block is equally useful."</p>
+<div class="hero-buttons">
+<a href="https://github.com/manishklach/intent-attention-kernel" class="btn btn-primary" target="_blank">View GitHub Repo</a>
+<a href="#architecture" class="btn btn-secondary">Read Architecture</a>
+<a href="#benchmarks" class="btn btn-ghost">See Benchmarks</a>
+</div>
+<div class="hero-diagram">
+<svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg">
+<rect x="250" y="0" width="200" height="36" rx="6" fill="#1e1e2e" stroke="#3a3a5e" stroke-width="1.5"/>
+<text x="350" y="23" text-anchor="middle" fill="#e8e8f0" font-size="13" font-family="Inter,sans-serif" font-weight="600">Agentic Runtime</text>
+<text x="350" y="46" text-anchor="middle" fill="#686888" font-size="11">|</text>
+<text x="350" y="58" text-anchor="middle" fill="#686888" font-size="11">v</text>
+<rect x="230" y="64" width="240" height="36" rx="6" fill="#1e1e2e" stroke="#3a3a5e" stroke-width="1.5"/>
+<text x="350" y="87" text-anchor="middle" fill="#e8e8f0" font-size="13" font-family="Inter,sans-serif" font-weight="600">Semantic Block Metadata</text>
+<text x="350" y="110" text-anchor="middle" fill="#686888" font-size="11">|</text>
+<text x="350" y="122" text-anchor="middle" fill="#686888" font-size="11">v</text>
+<rect x="120" y="128" width="460" height="36" rx="6" fill="#0d0d18" stroke="#6ba4ff" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="350" y="151" text-anchor="middle" fill="#6ba4ff" font-size="12" font-family="Inter,sans-serif" font-weight="500">Selection · Scoring · Quantization · Prefetch</text>
+<text x="350" y="174" text-anchor="middle" fill="#686888" font-size="11">|</text>
+<text x="350" y="186" text-anchor="middle" fill="#686888" font-size="11">v</text>
+<rect x="230" y="192" width="240" height="36" rx="6" fill="#1e1e2e" stroke="#3a3a5e" stroke-width="1.5"/>
+<text x="350" y="215" text-anchor="middle" fill="#e8e8f0" font-size="13" font-family="Inter,sans-serif" font-weight="600">Selected-KV Attention</text>
+<text x="350" y="238" text-anchor="middle" fill="#686888" font-size="11">|</text>
+<text x="350" y="250" text-anchor="middle" fill="#686888" font-size="11">v</text>
+<rect x="250" y="256" width="200" height="36" rx="6" fill="#1e1e2e" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="350" y="279" text-anchor="middle" fill="#a78bfa" font-size="13" font-family="Inter,sans-serif" font-weight="500">Future GPU Kernel Path</text>
+</svg>
+</div>
+</div>
+</section>
+<div class="container">
+<section id="why">
+<h2>Why This Matters</h2>
+<p>Long-context inference is increasingly dominated by KV-cache capacity, memory bandwidth, page movement, and structured context management — not just attention compute.</p>
+<div class="callout callout-blue"><p><strong>Traditional attention asks:</strong> "How do we compute attention faster?"</p></div>
+<div class="callout callout-orange"><p><strong>Intent Attention Kernel asks:</strong> "What if the runtime tells the execution layer which KV regions matter?"</p></div>
+<div class="highlight-quote"><p>The missing interface is not just between model and kernel. It is between <strong>runtime intent</strong> and <strong>KV execution</strong>.</p></div>
+</section>
+
+<section id="problem">
+<h2>The Problem: Context Is Not Flat</h2>
+<p>Agentic workloads contain structurally different regions. A generic dense attention path treats all of them as one undifferentiated KV stream.</p>
+<div class="block-strip">
+<span class="block-strip-item block-always">Sys Prompt</span>
+<span class="block-strip-item block-recent">Memory Summary</span>
+<span class="block-strip-item block-attend-high">Retrieved Doc 0</span>
+<span class="block-strip-item block-attend-low">Retrieved Doc 1</span>
+<span class="block-strip-item block-recent2">Tool Output</span>
+<span class="block-strip-item block-skip">Scratchpad</span>
+<span class="block-strip-item block-recent">Recent Turns</span>
+</div>
+<p>Not all blocks deserve equal treatment. System prompts are always critical. Recent context is usually high priority. Retrieved documents may be relevant or irrelevant. Old tool output may be optional. Scratchpads may be compressible or skippable.</p>
+</section>
+<section id="core">
+<h2>Core Idea: Semantic KV Block Metadata</h2>
+<p>Represent each semantic region as a block with an attention policy. The runtime can then select, score, quantize, and schedule KV blocks before they reach the attention kernel.</p>
+<div class="code-block">
+<div class="code-header"><span>Python — Block Layout Definition</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+<pre><code><span class="code-comment"># Define semantic regions with policies</span>
+layout = BlockLayout([
+    SemanticBlock(<span class="code-string">"system_prompt"</span>,    0,     512,   BlockPolicy.ALWAYS),
+    SemanticBlock(<span class="code-string">"retrieved_doc_0"</span>, 512,   4096,  BlockPolicy.ATTEND, <span class="code-keyword">score</span>=<span class="code-number">0.82</span>),
+    SemanticBlock(<span class="code-string">"retrieved_doc_1"</span>, 4096,  8192,  BlockPolicy.SKIP,    <span class="code-keyword">score</span>=<span class="code-number">0.21</span>),
+    SemanticBlock(<span class="code-string">"recent_context"</span>,  8192,  12288, BlockPolicy.RECENT),
+])
+
+<span class="code-comment"># Compute attention only over selected blocks</span>
+out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword">return_debug</span>=<span class="code-keyword">True</span>)</code></pre>
+</div>
+<p><strong>Block Policies:</strong></p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Policy</th><th>Selected</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td>ALWAYS</td><td>Yes</td><td>Always attend — system prompts, global context</td></tr>
+<tr><td>ATTEND</td><td>Conditional</td><td>Attend based on a relevance score threshold</td></tr>
+<tr><td>SKIP</td><td>No</td><td>Ignore entirely — scratchpad, filler</td></tr>
+<tr><td>RECENT</td><td>Yes</td><td>Always selected — sliding window / recent turns</td></tr>
+<tr><td>GLOBAL</td><td>Yes</td><td>Always selected — global memory tokens</td></tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-quote"><p>Do not compute and then mask; expose structure early enough to avoid the work.</p></div>
+</section>
+
+<section id="pillars">
+<h2>Five Pillars of the Project</h2>
+<p>The project explores five complementary mechanisms for exposing runtime intent to the KV execution layer.</p>
+<div class="card-grid">
+<div class="card"><span class="card-tag tag-blue">Pillar 1</span><h3>Semantic KV Block Selection</h3><p>The runtime marks regions of context with policies. The CPU reference gathers selected K/V tokens and computes attention only over selected regions. This is the core interface between runtime intent and the attention layer.</p></div>
+<div class="card"><span class="card-tag tag-cyan">Pillar 2</span><h3>Selected-Block Attention Reference</h3><p>A PyTorch CPU oracle proves correctness for non-causal selected-block attention. It compares selected-KV behavior against dense attention over the same selected K/V tensors. Causal selected-block attention is intentionally not implemented yet.</p></div>
+<div class="card"><span class="card-tag tag-purple">Pillar 3</span><h3>Dynamic Block Scoring</h3><p>A lightweight heuristic scores candidate blocks using query-to-block cosine similarity. This is not a trained router; it is a prototype control-plane signal for modeling the surface that a future runtime could consume.</p></div>
+<div class="card"><span class="card-tag tag-orange">Pillar 4</span><h3>IntentQuant-KV</h3><p>Not every KV block deserves the same precision. Critical regions can stay high precision (FP16/FP8) while lower-score or colder blocks may use INT8, INT4, INT4_RESIDUAL, or SKIP. No accuracy or perplexity preservation is claimed.</p></div>
+<div class="card"><span class="card-tag tag-green">Pillar 5</span><h3>Speculative KV Prefetch Simulation</h3><p>Adjacent decode steps may reuse similar KV regions. A prefetcher can predict likely next-step pages. Current benchmark simulates hit rate only. Prefetch must never affect correctness. No real latency speedup is claimed.</p></div>
+</div>
+</section>
+<section id="architecture">
+<h2>System Architecture</h2>
+<p>The architecture separates CPU-first simulation from the future GPU kernel path, with metadata-driven selection at the center.</p>
+<div class="arch-diagram">
+<div class="arch-grid">
+<div class="arch-col"><h3>CPU-First Simulation Layer</h3>
+<div class="arch-node"><span class="label">PyTorch Reference</span><br>Dense + selected-block attention</div>
+<div class="arch-node"><span class="label">Analytical Cost Model</span><br>FLOP and KV-byte savings</div>
+<div class="arch-node"><span class="label">Synthetic Trace Generator</span><br>Deterministic agentic layouts</div>
+<div class="arch-node"><span class="label">Benchmark Scripts</span><br>6 CPU benchmarks</div>
+<div class="arch-node"><span class="label">pytest Suite</span><br>74+ tests</div>
+</div>
+<div class="arch-col"><h3>Future GPU Kernel Path</h3>
+<div class="arch-node"><span class="label">Triton Selected-Block Attention</span><br>Iterate only over selected pages</div>
+<div class="arch-node"><span class="label">Per-Page Dequantization</span><br>INT8 mixed-precision attention</div>
+<div class="arch-node"><span class="label">Paged KV Block Table</span><br>Physical page indirection</div>
+<div class="arch-node"><span class="label">Query-Position-Aware Masking</span><br>Correct causal selected-block</div>
+<div class="arch-node"><span class="label">Prefetch / Staging Hints</span><br>Latency hiding experiments</div>
+</div>
+</div>
+<div class="arch-center" style="margin-top:1.5rem"><span class="label">Metadata-Driven KV Execution Interface</span></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem;margin-top:0.5rem">
+<div class="arch-node" style="text-align:center;width:100%"><span class="label">Agentic Runtime → Semantic Blocks → Policy Selection → Dynamic Scoring → Paged KV Table → IntentQuant-KV → Prefetch Prediction → Selected-KV Attention → Future GPU Kernel</span></div>
+</div>
+</div>
+</section>
+
+<section id="comparison">
+<h2>Dense vs Masked vs Intent-Aware KV Execution</h2>
+<p>How different approaches compare in terms of what they know, work they avoid, and future potential.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Approach</th><th>What It Knows</th><th>Work Avoided Today</th><th>Future GPU Goal</th><th>Risk / Limitation</th></tr></thead>
+<tbody>
+<tr><td>Dense attention</td><td>Flat token stream</td><td>None</td><td>Baseline</td><td>Treats all context equally; no structure awareness</td></tr>
+<tr><td>Masked attention</td><td>Token/block mask</td><td>Often limited</td><td>May still process masked regions</td><td>Useful but late-binding; mask applied post-QK</td></tr>
+<tr><td>Selected-block attention</td><td>Block bounds + policies</td><td>CPU gather over selected K/V</td><td>Avoid loading skipped KV pages</td><td>Needs correct causal / query-position support</td></tr>
+<tr><td>Intent-aware KV execution</td><td>Policy + score + quant + prefetch hints</td><td>Analytical / simulated today</td><td>Fuse selection, dequant, and prefetch into kernel</td><td>Requires hardware validation; complex interface</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="intentquant">
+<h2>IntentQuant-KV Deep Dive</h2>
+<p>Quantization should not be only a global model setting. It can also be an execution policy driven by runtime intent. Uniform KV quantization applies the same precision across different semantic regions; IntentQuant-KV explores block/page-level precision assignment based on policy, recency, score, and memory pressure.</p>
+<h3>Precision Ladder</h3>
+<div class="precision-ladder">
+<div class="precision-tier prec-fp16"><span class="level">FP16</span><span class="desc">Critical blocks — system prompts, global memory, recent context — full precision</span></div>
+<div class="precision-tier prec-fp8"><span class="level">FP8</span><span class="desc">Important selected blocks — high-scoring attended documents</span></div>
+<div class="precision-tier prec-int8"><span class="level">INT8</span><span class="desc">Relevant but non-critical blocks — moderate-score attended regions</span></div>
+<div class="precision-tier prec-int4r"><span class="level">INT4_RESIDUAL</span><span class="desc">Medium-score blocks — useful but lower confidence; residual correction</span></div>
+<div class="precision-tier prec-int4"><span class="level">INT4</span><span class="desc">Cold or low-score blocks — old tool outputs, low-relevance documents</span></div>
+<div class="precision-tier prec-skip"><span class="level">SKIP</span><span class="desc">Skipped blocks — zero KV bytes contributed</span></div>
+</div>
+<h3>Sample Policy Assignment</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Block</th><th>Policy</th><th>Example Precision</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td>system_prompt</td><td>ALWAYS</td><td>FP16</td><td>Critical instruction context; attended every step</td></tr>
+<tr><td>recent_context</td><td>RECENT</td><td>FP8 / INT8</td><td>High reuse and recency</td></tr>
+<tr><td>retrieved_doc_high</td><td>ATTEND</td><td>INT8</td><td>Relevant selected document</td></tr>
+<tr><td>retrieved_doc_medium</td><td>ATTEND</td><td>INT4_RESIDUAL</td><td>Useful but lower confidence</td></tr>
+<tr><td>old_tool_output</td><td>SKIP</td><td>INT4 / SKIP</td><td>Cold or irrelevant</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout callout-red"><p><strong>Limitations:</strong> No production quantization kernel. No model-quality or perplexity validation. Fake quantization only. Dequant overhead may dominate. Real benefit depends on bandwidth pressure, page reuse, hardware support, and attention fusion.</p></div>
+<div class="code-block">
+<div class="code-header"><span>Python — IntentQuant-KV Policy Assignment</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+<pre><code><span class="code-keyword">from</span> intent_attention.intent_quant <span class="code-keyword">import</span> IntentQuantizer
+
+quantizer = IntentQuantizer(<span class="code-keyword">memory_pressure</span>=<span class="code-number">0.7</span>)
+policies = quantizer.assign_layout_precision(layout)
+
+<span class="code-comment"># View per-block precision summary</span>
+summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span>=<span class="code-number">32</span>, <span class="code-keyword">head_dim</span>=<span class="code-number">128</span>)</code></pre>
+</div>
+</section>
+<section id="benchmarks">
+<h2>Benchmarks</h2>
+<p>All benchmarks run on CPU and do not require CUDA or Triton. CPU Ratio is not a GPU speedup claim.</p>
+<div class="callout callout-orange"><p><strong>CPU Ratio</strong> = dense_time / semantic_time on PyTorch's CPU backend. It is affected by PyTorch dispatch overhead, gather overhead, cache behavior, tensor size, and small-batch effects. CPU Ratio is <strong>not</strong> a GPU speedup prediction.</p></div>
+<div class="bench-grid">
+<div class="bench-card"><h4>bench_cost_model.py</h4><p class="purpose">Analytical FLOP and KV-byte savings from selected-block attention. Zero-tensor arithmetic comparing dense vs selected-attention cost.</p><p class="not-prove"><strong>Does not prove:</strong> real GPU speedup</p></div>
+<div class="bench-card"><h4>bench_cpu_reference.py</h4><p class="purpose">CPU timing sanity check for dense vs selected-block reference paths. Measures PyTorch overhead on CPU only.</p><p class="not-prove"><strong>Does not prove:</strong> fused kernel performance</p></div>
+<div class="bench-card"><h4>bench_kv_quant.py</h4><p class="purpose">KV byte savings model for selected INT8-style KV pages. Compares fp16 dense storage vs int8+scale for selected pages.</p><p class="not-prove"><strong>Does not prove:</strong> real memory bandwidth reduction</p></div>
+<div class="bench-card"><h4>bench_prefetch.py</h4><p class="purpose">Simulated next-step KV page prediction and hit-rate behavior for speculative prefetch during agentic decode.</p><p class="not-prove"><strong>Does not prove:</strong> real latency hiding</p></div>
+<div class="bench-card"><h4>bench_dynamic_scoring.py</h4><p class="purpose">Synthetic query-to-block cosine-similarity scoring behavior across varying block counts.</p><p class="not-prove"><strong>Does not prove:</strong> routing quality or general solution</p></div>
+<div class="bench-card"><h4>bench_intent_quant.py</h4><p class="purpose">IntentQuant-KV mixed-precision byte model and fake quant/dequant reconstruction metrics for FP16/FP8/INT8/INT4/INT4_RESIDUAL.</p><p class="not-prove"><strong>Does not prove:</strong> model quality or perplexity preservation</p></div>
+</div>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Benchmark</th><th>What It Validates</th><th>What It Does Not Prove</th></tr></thead>
+<tbody>
+<tr><td>bench_cost_model</td><td>Selected-KV analytical work reduction</td><td>Real GPU speedup</td></tr>
+<tr><td>bench_cpu_reference</td><td>Correctness and sanity</td><td>Fused kernel performance</td></tr>
+<tr><td>bench_intent_quant</td><td>Byte model and reconstruction metrics</td><td>Model quality / perplexity</td></tr>
+<tr><td>bench_prefetch</td><td>Simulated hit rate</td><td>Real latency hiding</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="causal">
+<h2>Causal Attention Limitation</h2>
+<p>Non-causal selected-block attention is implemented and verified in the CPU reference. Causal selected-block attention is intentionally <strong>not implemented</strong> because selected KV tokens retain original context positions. A correct implementation requires:</p>
+<div class="limitation-box">
+<h4>Requirements for Causal Selected-Block Attention</h4>
+<ul>
+<li>Explicit <code>query_positions</code> or per-query causal bounds</li>
+<li>Query-position-aware masking in original coordinates</li>
+<li>Partial-page token bounds for paged KV layouts</li>
+<li>Logical KV ordering preservation</li>
+<li>Page deduplication without reordering</li>
+<li>Causal correctness for both prefill and decode phases</li>
+</ul>
+</div>
+<p>Calling <code>semantic_block_attention(..., causal=True)</code> currently raises <code>NotImplementedError</code>.</p>
+</section>
+
+<section id="impl">
+<h2>Current Implementation</h2>
+<div class="checklist">
+<div class="checklist-item"><span class="check">&#10003;</span> SemanticBlock / BlockLayout metadata</div>
+<div class="checklist-item"><span class="check">&#10003;</span> BlockPolicy enum (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> BlockTable page mapping helper</div>
+<div class="checklist-item"><span class="check">&#10003;</span> PyTorch dense attention baseline</div>
+<div class="checklist-item"><span class="check">&#10003;</span> PyTorch selected-block attention reference</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Dynamic block scoring prototype (BlockScorer)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Analytical FLOP/KV-byte cost model</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Synthetic agentic trace generator</div>
+<div class="checklist-item"><span class="check">&#10003;</span> KV quantization benchmark/model</div>
+<div class="checklist-item"><span class="check">&#10003;</span> IntentQuant-KV mixed-precision policy simulator</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Fake quant/dequant reconstruction metrics</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Speculative prefetch simulator (BlockPrefetcher)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Triton/CUDA placeholder paths with CPU-safe fallback</div>
+<div class="checklist-item"><span class="check">&#10003;</span> HuggingFace Transformers integration (patch_model)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> vLLM-style paged-attention bridge</div>
+<div class="checklist-item"><span class="check">&#10003;</span> pytest coverage (74+ tests)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> 6 CPU benchmark scripts</div>
+</div>
+</section>
+<section id="limits">
+<h2>What Is Not Claimed</h2>
+<div class="not-claimed">
+<h3>Honest Boundaries</h3>
+<ul>
+<li>No GPU speedups are claimed.</li>
+<li>No production-ready Triton/CUDA kernel is claimed.</li>
+<li>No real NVIDIA hardware validation has been performed.</li>
+<li>Quantization has not been validated for model accuracy or perplexity.</li>
+<li>No superiority over KIVI, KVQuant, or TurboQuant is claimed.</li>
+<li>No production quantization kernel is provided.</li>
+<li>No model quality guarantee is made.</li>
+<li>Prefetch has not been validated for real latency improvement.</li>
+<li>Dynamic scoring is a heuristic, not a trained routing model.</li>
+<li>CPU Ratio is not a GPU speedup.</li>
+<li>Analytical KV/FLOP savings are not measured GPU performance.</li>
+</ul>
+</div>
+</section>
+
+<section id="roadmap">
+<h2>Future Roadmap</h2>
+<div class="roadmap">
+<div class="roadmap-item"><span class="phase">Phase 1</span><h4>CPU-First Correctness</h4><p>Metadata surface, block selection, dense baseline, selected-block reference, cost model, synthetic traces, benchmarks, test suite.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 2</span><h4>Query-Position-Aware Causal Attention</h4><p>Implement correct causal selected-block attention with explicit query_positions or per-query causal bounds.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 3</span><h4>Paged KV Block Table</h4><p>Support for partial-page token bounds and logical KV ordering preservation.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 4</span><h4>Triton Selected-Block Attention Kernel</h4><p>Iterate only over physical pages from the block table; skip unused pages entirely.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 5</span><h4>IntentQuant-KV Dequant-in-Attention Fusion</h4><p>Fuse per-page dequantization with the attention kernel to reduce memory round-trips.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 6</span><h4>Prefetch / Staging on Real GPU Hardware</h4><p>Experiments with prefetch hints and latency hiding on NVIDIA GPUs.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 7</span><h4>Integration Experiments</h4><p>vLLM and HuggingFace Transformers integration experiments for real inference workloads.</p></div>
+</div>
+</section>
+
+<section id="quickstart">
+<h2>Quick Start</h2>
+<div class="code-block">
+<div class="code-header"><span>Shell — Install &amp; Run</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+<pre><code><span class="code-comment"># Install from source</span>
+pip install -e <span class="code-string">".[dev]"</span>
+
+<span class="code-comment"># Compile-check all source files</span>
+python -m py_compile src/intent_attention/*.py
+
+<span class="code-comment"># Run tests</span>
+pytest -q
+
+<span class="code-comment"># Run benchmarks</span>
+python benchmarks/bench_cost_model.py
+python benchmarks/bench_cpu_reference.py
+python benchmarks/bench_kv_quant.py
+python benchmarks/bench_prefetch.py
+python benchmarks/bench_dynamic_scoring.py
+python benchmarks/bench_intent_quant.py</code></pre>
+</div>
+</section>
+
+</div>
+
+<div class="gh-cta">
+<h2 style="-webkit-text-fill-color:var(--text-primary);color:var(--text-primary);background:none">Explore the Repository</h2>
+<p class="repo-url"><a href="https://github.com/manishklach/intent-attention-kernel" style="color:var(--accent-blue);text-decoration:none">github.com/manishklach/intent-attention-kernel</a></p>
+<a href="https://github.com/manishklach/intent-attention-kernel" class="btn btn-primary" target="_blank">View on GitHub</a>
+</div>
+
+<footer>
+<p>Intent Attention Kernel — Intent-Aware KV Execution for Agentic Long-Context Inference</p>
+<p>MIT License &middot; <a href="https://github.com/manishklach/intent-attention-kernel">GitHub</a></p>
+<p style="margin-top:1rem;font-size:0.75rem">CPU-first research prototype. No GPU speedups claimed. Not production-ready.</p>
+</footer>
+
+<script>
+window.addEventListener('scroll',function(){var s=document.body.scrollTop||document.documentElement.scrollTop;var h=document.documentElement.scrollHeight-document.documentElement.clientHeight;document.getElementById('progress-bar').style.width=((s/h)*100)+'%'});
+document.querySelectorAll('nav a').forEach(function(l){l.addEventListener('click',function(){document.querySelectorAll('nav a').forEach(function(x){x.classList.remove('active')});this.classList.add('active')})});
+function copyCode(b){var t=b.closest('.code-block').querySelector('pre').textContent;navigator.clipboard.writeText(t).then(function(){b.textContent='Copied!';setTimeout(function(){b.textContent='Copy'},2000)})}
+window.addEventListener('scroll',function(){var c='';document.querySelectorAll('section[id]').forEach(function(s){if(window.scrollY>=s.offsetTop-100)c=s.getAttribute('id')});document.querySelectorAll('nav a').forEach(function(l){l.classList.remove('active');if(l.getAttribute('href')==='#'+c)l.classList.add('active')})});
+</script>
+</body>
+</html>

@@ -74,6 +74,22 @@ per-block precision (FP16, FP8, INT8, INT4, INT4_RESIDUAL, or SKIP) based
 on block policy, score, recency, and memory pressure. This is a policy
 simulator only — no real GPU quantization kernel is provided.
 
+### 6. IntentQuant Attention Kernel — Per-Block Quantized Attention
+
+Extends IntentQuant-KV into the selected-block attention path itself. Each
+selected block is individually quantized (via `fake_quantize_tensor`) and
+immediately dequantized (via `fake_dequantize_tensor`) before being
+concatenated and passed to dense attention. This is a CPU reference — the
+quantized path is intentionally slower to isolate reconstruction error
+mechanics without hardware fusion.
+
+```python
+from intent_attention.intent_quant_attention import (
+    intent_quant_attention_reference,
+    compare_intent_quant_to_fp16_selected,
+)
+```
+
 ### 5. Speculative KV Prefetch Simulation
 
 Agentic decode often reuses similar KV regions over adjacent steps. A
@@ -194,6 +210,9 @@ python benchmarks/bench_dynamic_scoring.py
 
 # Run intent-aware mixed-precision KV quantization benchmark
 python benchmarks/bench_intent_quant.py
+
+# Run per-block IntentQuant attention reference benchmark
+python benchmarks/bench_intent_quant_attention.py
 ```
 
 ---
@@ -308,8 +327,9 @@ quant/dequant reconstruction error test.
 - [x] vLLM-style paged-attention bridge
 - [x] Intent-aware mixed-precision KV quantization policy simulator (IntentQuantizer)
 - [x] Fake quant/dequant reconstruction metrics (FP16/FP8/INT8/INT4/INT4_RESIDUAL)
-- [x] pytest coverage (74 tests)
-- [x] CPU benchmark scripts (6 benchmarks)
+- [x] pytest coverage (84 tests)
+- [x] CPU benchmark scripts (7 benchmarks)
+- [x] IntentQuant Attention Kernel — per-block fake quant/dequant in selected-block attention path
 
 ---
 
@@ -339,6 +359,7 @@ intent-attention-kernel/
         bench_cpu_reference.py    CPU timing (for development only)
         bench_dynamic_scoring.py  Dynamic block scoring evaluation
         bench_intent_quant.py     Intent-aware mixed-precision KV quantization
+        bench_intent_quant_attention.py  Per-block quantized attention reference
         bench_kv_quant.py         KV cache quantisation memory analysis
         bench_prefetch.py         Speculative prefetch decode simulation
     docs/
@@ -360,6 +381,7 @@ intent-attention-kernel/
         cost_model.py             Analytical FLOP/KV-byte model
         hf_patch.py               HuggingFace Transformers integration
         intent_quant.py           Intent-aware mixed-precision KV quantization
+        intent_quant_attention.py Per-block quantized attention reference
         kv_quant.py               INT8 KV cache quantisation
         prefetch.py               Speculative KV block prefetching
         reference.py              Dense + selected-block attention

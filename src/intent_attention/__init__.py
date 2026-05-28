@@ -7,6 +7,10 @@ from .cost_model import (
     semantic_attention_cost,
     savings_report,
 )
+from .intent_quant_attention import (
+    intent_quant_attention_reference,
+    compare_intent_quant_to_fp16_selected,
+)
 from .intent_quant import (
     KVPrecision,
     QuantPolicy,
@@ -29,6 +33,8 @@ from .triton_kernel import (
 )
 
 __all__ = [
+    "intent_quant_attention_reference",
+    "compare_intent_quant_to_fp16_selected",
     "BlockPolicy",
     "SemanticBlock",
     "BlockLayout",

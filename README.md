@@ -97,6 +97,28 @@ prefetcher can predict likely next-step KV pages. The current benchmark
 simulates hit rate and latency-hiding potential. Prefetch must never affect
 correctness. No real latency speedup is claimed without hardware validation.
 
+### 7. KV Block Router
+
+The KV Block Router is the missing **runtime-to-kernel policy layer**.
+It converts semantic context blocks into flat kernel-ready metadata:
+
+- selected pages
+- skipped pages
+- precision by page
+- prefetch hints
+- routing reasons
+
+```python
+from intent_attention import BlockRouter, RouterConfig
+
+router = BlockRouter(RouterConfig(memory_pressure=0.5))
+routed = router.route_layout(layout, total_tokens=1440)
+summary = router.routing_summary(routed)
+meta = routing_to_kernel_metadata(routed, page_size=16)
+```
+
+**The router is the policy layer. The kernel is the execution layer.**
+
 ---
 
 ## IntentQuant-KV
@@ -146,20 +168,23 @@ python benchmarks/bench_intent_quant.py
 Agentic runtime
     |
     v
-Semantic context blocks
+KV Block Router (policy layer)
     |
-    +--> block policy selection
-    |
-    +--> dynamic block scoring
-    |
-    +--> paged KV block table
-    |
-    +--> optional KV quantization model
-    |
-    +--> optional next-step prefetch prediction
+    +--> semantic policy (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL)
+    +--> dynamic block score
+    +--> recency window
+    +--> memory pressure
+    +--> optional query-to-block similarity
     |
     v
-Selected-KV attention reference
+Kernel metadata
+    |
+    +--> selected pages
+    +--> precision by page
+    +--> prefetch hints
+    |
+    v
+IntentQuant / selected-block attention kernels
     |
     v
 Future Triton/CUDA kernel path
@@ -216,6 +241,9 @@ python benchmarks/bench_intent_quant_attention.py
 
 # Run optional Triton IntentQuant decode attention benchmark (requires GPU + Triton)
 python benchmarks/bench_triton_intent_quant_attention.py
+
+# Run KV Block Router benchmark (CPU)
+python benchmarks/bench_block_router.py
 ```
 
 ---
@@ -320,6 +348,15 @@ KV pages with per-page precision (FP16 or INT8). Skips cleanly on systems
 without Triton or CUDA. No GPU speedup is claimed — this is a first kernel
 prototype for hardware experimentation.
 
+### bench_block_router.py
+
+CPU routing and cost-model benchmark for the KV Block Router. Generates
+synthetic agentic layouts at 8K, 32K, and 128K tokens and reports block
+selection, precision distribution, page IDs, and estimated KV byte savings
+for multiple router configurations.
+
+> This is a routing and cost-model benchmark, not a GPU speedup claim.
+
 > CPU Ratio is not a GPU speedup claim. CPU timing is affected by PyTorch
 > dispatch overhead, gather overhead, cache behavior, tensor size, and
 > small-batch effects.
@@ -343,10 +380,13 @@ prototype for hardware experimentation.
 - [x] vLLM-style paged-attention bridge
 - [x] Intent-aware mixed-precision KV quantization policy simulator (IntentQuantizer)
 - [x] Fake quant/dequant reconstruction metrics (FP16/FP8/INT8/INT4/INT4_RESIDUAL)
-- [x] pytest coverage (94 tests)
-- [x] CPU benchmark scripts (8 benchmarks)
+- [x] pytest coverage (130 tests)
+- [x] CPU benchmark scripts (9 benchmarks)
 - [x] IntentQuant Attention Kernel — per-block fake quant/dequant in selected-block attention path
 - [x] Triton IntentQuant decode attention prototype (optional, GPU-only)
+- [x] CPU-first KV Block Router — runtime-to-kernel policy layer
+- [x] routing-to-kernel metadata conversion (selected pages, precision, prefetch)
+- [x] per-block routing decisions and reasons
 
 ---
 
@@ -361,6 +401,9 @@ prototype for hardware experimentation.
 - No model quality guarantee is made.
 - Prefetch has not been validated for real latency improvement.
 - Dynamic scoring is a heuristic, not a trained routing model.
+- **The KV Block Router is heuristic, not learned.**
+- **Selected pages are not guaranteed optimal.**
+- **No accuracy or perplexity validation has been performed on routing decisions.**
 - CPU Ratio is not a GPU speedup.
 - Analytical KV/FLOP savings are not measured GPU performance.
 
@@ -372,6 +415,7 @@ prototype for hardware experimentation.
 intent-attention-kernel/
     .github/workflows/tests.yml   CI
     benchmarks/
+        bench_block_router.py     KV Block Router routing & cost model
         bench_cost_model.py       Analytical cost model
         bench_cpu_reference.py    CPU timing (for development only)
         bench_dynamic_scoring.py  Dynamic block scoring evaluation
@@ -383,6 +427,7 @@ intent-attention-kernel/
     docs/
         architecture.md           Module design
         attention_layout.md       Block policies
+        block_router.md           KV Block Router design and contract
         dynamic_scoring.md        Dynamic scoring design
         gpu_kernel_plan.md        Future GPU mapping
         intent_quant.md           Intent-aware mixed-precision KV quantization
@@ -394,6 +439,7 @@ intent-attention-kernel/
         __init__.py               Public API
         _enum.py                  StrEnum base
         block_metadata.py         BlockPolicy, SemanticBlock, BlockLayout
+        block_router.py           KV Block Router (policy layer)
         block_scorer.py           Dynamic block scoring (cosine similarity)
         block_table.py            Paged KV mapping simulation
         cost_model.py             Analytical FLOP/KV-byte model
@@ -401,7 +447,7 @@ intent-attention-kernel/
         intent_quant.py           Intent-aware mixed-precision KV quantization
         intent_quant_attention.py Per-block quantized attention reference
         kv_quant.py               INT8 KV cache quantisation
-        triton_intent_quant_attention.py Optional Triton IntentQuant decode attention               INT8 KV cache quantisation
+        triton_intent_quant_attention.py Optional Triton IntentQuant decode attention
         prefetch.py               Speculative KV block prefetching
         reference.py              Dense + selected-block attention
         synthetic_traces.py       Layout generators
@@ -430,6 +476,7 @@ python -m ruff check src tests benchmarks
 
 ## Roadmap (Future Work)
 
+- [x] **KV Block Router** — runtime-to-kernel policy layer (CPU)
 - [x] **Triton IntentQuant decode kernel** — selected-page decode with per-page precision (FP16/INT8)
 - [ ] **Triton kernel** — iterate only over physical pages from block table (general)
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping

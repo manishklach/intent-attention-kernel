@@ -57,3 +57,6 @@ jobs:
 
       - name: Run IntentQuant attention benchmark
         run: python benchmarks/bench_intent_quant_attention.py
+
+      - name: Run KV Block Router benchmark
+        run: python benchmarks/bench_block_router.py

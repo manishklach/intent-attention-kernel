@@ -1,4 +1,12 @@
 from .block_metadata import BlockPolicy, SemanticBlock, BlockLayout
+from .block_router import (
+    BlockDecision,
+    BlockRouter,
+    RouterConfig,
+    RoutedBlock,
+    compute_block_scores,
+    routing_to_kernel_metadata,
+)
 from .block_scorer import BlockScorer
 from .block_table import BlockTable
 from .cost_model import (
@@ -43,6 +51,12 @@ from .triton_kernel import (
 __all__ = [
     "intent_quant_attention_reference",
     "compare_intent_quant_to_fp16_selected",
+    "BlockDecision",
+    "BlockRouter",
+    "RouterConfig",
+    "RoutedBlock",
+    "compute_block_scores",
+    "routing_to_kernel_metadata",
     "BlockPolicy",
     "SemanticBlock",
     "BlockLayout",

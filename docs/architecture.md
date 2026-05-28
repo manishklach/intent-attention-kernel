@@ -1,6 +1,6 @@
 # Architecture
 
-Intent Attention Kernel is organised as a Python package with a
+Intent Attention Simulator is organised as a Python package with a
 simulator-first design.  Each module has a single responsibility.
 
 ## Module Map
@@ -33,3 +33,11 @@ src/intent_attention/
 - **Deterministic**: layout generators accept an optional `seed`.
 - **Verifiable**: `semantic_block_attention` output equals
   `dense_attention` on the gathered K/V sub-tensor.
+- **Honest**: no GPU speedups are claimed or implied.
+
+## Current Limitations
+
+- This is a **simulator**, not a GPU kernel.
+- The reference attention path gathers K/V then computes dense attention;
+  a real GPU kernel would avoid loading skipped pages in the first place.
+- Causal masking is not implemented.

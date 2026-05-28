@@ -2,17 +2,19 @@
 
 ## Warning
 
-CPU timing is **not representative** of GPU kernel performance. PyTorch's
+CPU timing is **not representative** of GPU kernel performance.  PyTorch's
 CPU attention path is unoptimised (no FlashAttention, no fused kernels).
 These numbers measure Python overhead and naive matmul on CPU only.
 
-## What these numbers measure
+## What These Numbers Measure
 
-- `dense_attention` — PyTorch CPU matmul over all KV tokens (unoptimised, no FlashAttention).
-- `semantic_block_attention` — PyTorch CPU gather + matmul over selected KV tokens.
+- `dense_attention` — PyTorch CPU matmul over all KV tokens (unoptimised,
+  no FlashAttention).
+- `semantic_block_attention` — PyTorch CPU gather + matmul over selected
+  KV tokens.
 - The ratio is **CPU-only overhead comparison**, not GPU performance.
 
-## What these numbers do NOT measure
+## What These Numbers Do NOT Measure
 
 - GPU memory bandwidth (HBM).
 - Kernel launch overhead.
@@ -20,8 +22,28 @@ These numbers measure Python overhead and naive matmul on CPU only.
 - Realistic GPU speedups from skipping KV pages.
 
 GPU speedups depend on many factors not captured here: memory bandwidth,
-kernel fusion, page-table walks, and the fraction of skipped tokens. This
+kernel fusion, page-table walks, and the fraction of skipped tokens.  This
 CPU benchmark cannot predict GPU performance.
+
+## Sample Output
+
+```
+Tokens    Dense (s)   Semantic (s)   CPU Ratio
+     512       0.0032         0.0030       1.08x
+    1024       0.0054         0.0058       0.94x
+    2048       0.0089         0.0100       0.89x
+    4096       0.0163         0.0140       1.16x
+```
+
+## Interpreting CPU Ratio
+
+- A ratio **above 1.0** means dense attention took longer on CPU (the
+  selected-block path was faster).
+- A ratio **below 1.0** can happen for small cases due to gather overhead,
+  cache behaviour, PyTorch dispatch, or small-tensor matmul effects.
+- The trend across increasing KV lengths is more informative than any
+  single number.
+- **CPU Ratio is not a GPU speedup prediction.**
 
 ## How to Run
 
@@ -29,21 +51,9 @@ CPU benchmark cannot predict GPU performance.
 python benchmarks/bench_cpu_reference.py
 ```
 
-## Interpreting Output
+## Analytical Estimates
 
-```
-Tokens  Dense (s)   Semantic (s)   CPU Speedup
-  512      0.1234        0.0890         1.39x
- 1024      0.4567        0.2345         1.95x
- 2048      1.2345        0.4567         2.70x
- 4096      4.5678        0.8901         5.13x
-```
-
-The CPU speedup grows with context length because more tokens are classified
-as SKIP, reducing the matmul size on CPU. This is **not** a prediction of
-GPU kernel speedup.
-
-For analytical (tensor-free) estimates, use:
+For tensor-free analytical estimates (FLOPs and KV bytes saved), use:
 
 ```bash
 python benchmarks/bench_cost_model.py

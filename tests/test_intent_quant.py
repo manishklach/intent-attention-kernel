@@ -187,8 +187,12 @@ def test_quant_policy_dataclass() -> None:
 
 def test_benchmark_import_no_cuda() -> None:
     import importlib
+    import sys
 
-    spec = importlib.util.find_spec("benchmarks.bench_intent_quant")
+    try:
+        spec = importlib.util.find_spec("benchmarks.bench_intent_quant")
+    except ModuleNotFoundError:
+        spec = None
     if spec is not None:
         import benchmarks.bench_intent_quant  # noqa: F401
 

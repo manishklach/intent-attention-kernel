@@ -1,6 +1,6 @@
-# Intent Attention Kernel
+# Intent Attention Simulator
 
-**Semantic Block Attention for Agentic Long-Context Inference**
+**Semantic Block Attention for Agentic Long-Context Inference — CPU Simulator / Research Prototype**
 
 [![CI](https://github.com/manishklach/intent-attention-kernel/actions/workflows/tests.yml/badge.svg)](https://github.com/manishklach/intent-attention-kernel/actions/workflows/tests.yml)
 
@@ -32,9 +32,9 @@ attention only over selected KV blocks.
 |----------|---------------|-------------------|--------------|
 | Dense attention | All | None | Yes |
 | Sparse/masked attention | All (mask applied post-QK) | Per-token mask | No |
-| **Selected-block attention (ours)** | Subset | Per-block policy + bounds | Yes (with paged KV cache) |
+| **Selected-block attention (design)** | Subset | Per-block policy + bounds | Aspires to be (needs paged KV kernel) |
 
-Selected-block attention skips loading unused KV pages from HBM entirely.
+Selected-block attention aims to skip loading unused KV pages from HBM; this repo simulates the metadata and cost model on CPU only.
 
 ## Architecture
 
@@ -110,25 +110,32 @@ python benchmarks/bench_cost_model.py
 python benchmarks/bench_cpu_reference.py
 ```
 
+## What Is Not Claimed
+
+This repo does **not**:
+
+- Claim GPU speedups. All performance numbers are analytical or CPU-only.
+- Implement a real GPU kernel. The `triton_kernel.py` is a stub that falls back to PyTorch on CPU.
+- Measure GPU memory bandwidth or kernel launch overhead.
+- Support production inference workloads.
+
+It **is** a **simulator-first prototype** that proves the interface, correctness,
+metadata model, selected-block attention semantics, and analytical cost savings
+before a real Triton/CUDA kernel is implemented.
+
 ## What Is Implemented
 
 - [x] `BlockPolicy` enum (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL)
 - [x] `SemanticBlock` / `BlockLayout` with validation
-- [x] Dense attention reference
-- [x] Selected-block attention (gather K/V, then dense)
+- [x] Dense attention reference (PyTorch, CPU)
+- [x] Selected-block attention (gather K/V, then dense — CPU only)
 - [x] Analytical cost model (FLOPs, KV bytes, savings %)
 - [x] Synthetic trace generators (deterministic with seed)
-- [x] `BlockTable` helper for paged KV mapping
+- [x] `BlockTable` helper for paged KV mapping (CPU simulation)
 - [x] Triton stub with CPU fallback
 - [x] Comprehensive test suite
 
-## What Is Not Claimed
-
-This repo does **not** claim GPU speedups. It is a **simulator-first prototype**
-that proves the interface, correctness, metadata model, and analytical cost
-savings before a real Triton/CUDA kernel is implemented.
-
-## Roadmap
+## Roadmap (Future Work)
 
 - [ ] **Triton kernel** — iterate only over physical pages from block table
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping
@@ -138,7 +145,8 @@ savings before a real Triton/CUDA kernel is implemented.
 ## Disclaimer
 
 This is research prototype code. Interfaces may change. Not production-ready.
-No GPU speedups are claimed or implied.
+No GPU speedups are claimed or implied. All GPU-related statements describe
+future design goals, not current capabilities.
 
 ## License
 

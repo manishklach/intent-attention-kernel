@@ -35,21 +35,9 @@ def semantic_attention_triton(
 
 ## Current Status
 
-The Triton kernel is a **stub**.  On CPU-only machines it falls back to
-the PyTorch reference.  When both Triton and CUDA are detected it raises
-`NotImplementedError` — actual kernel launch requires hardware validation.
-
-## When Hardware Is Available
-
-To enable the GPU kernel path:
-
-```python
-from intent_attention.triton_kernel import (
-    is_triton_available,
-    is_cuda_available,
-    semantic_block_attention_triton,
-)
-```
-
-The `_semantic_attention_kernel` JIT function in `triton_kernel.py` is the
-starting point for the real implementation.
+The repo contains **no real GPU kernel code** — only a stub function
+(`semantic_block_attention_triton`) that falls back to the CPU reference
+when Triton is absent and raises `NotImplementedError` when Triton/CUDA
+are present.  The actual Triton kernel body has not been written yet.
+Every statement in this document describes a future design goal, not a
+current capability.

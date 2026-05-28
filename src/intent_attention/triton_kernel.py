@@ -32,17 +32,17 @@ def semantic_block_attention_triton(
     v: torch.Tensor,
     layout,
 ) -> torch.Tensor:
-    """Triton-accelerated semantic block attention.
+    """Placeholder for a future Triton-accelerated semantic block attention.
 
-    Falls back to the CPU reference when Triton/CUDA is unavailable.
-    Raises NotImplementedError when hardware is present — the GPU kernel
-    is a future implementation requiring hardware validation.
+    Currently a stub:
+    - On CPU-only machines: falls back to the PyTorch reference.
+    - When Triton+CUDA are present: raises NotImplementedError (kernel not written).
     """
     if not is_triton_available() or not is_cuda_available():
         from .reference import semantic_block_attention as _fallback
         return _fallback(q, k, v, layout)
 
     raise NotImplementedError(
-        "GPU kernel execution is a future implementation requiring hardware validation. "
-        "Falling back is disabled when both Triton and CUDA are available."
+        "GPU kernel not yet implemented. This function is a stub that proves "
+        "the interface only. The real Triton/CUDA kernel requires hardware validation."
     )

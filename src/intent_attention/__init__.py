@@ -26,6 +26,14 @@ from .synthetic_traces import (
     random_layout,
     layout_from_policy_dict,
 )
+from .triton_intent_quant_attention import (
+    IntentQuantKernelConfig,
+    TritonKVPrecision,
+    fake_int8_pages_from_fp16,
+    intent_quant_decode_attention_triton,
+    make_page_tables_from_selected_pages,
+    make_precision_tensor,
+)
 from .triton_kernel import (
     is_triton_available,
     is_cuda_available,
@@ -59,4 +67,10 @@ __all__ = [
     "is_triton_available",
     "is_cuda_available",
     "semantic_block_attention_triton",
+    "IntentQuantKernelConfig",
+    "TritonKVPrecision",
+    "intent_quant_decode_attention_triton",
+    "make_page_tables_from_selected_pages",
+    "fake_int8_pages_from_fp16",
+    "make_precision_tensor",
 ]

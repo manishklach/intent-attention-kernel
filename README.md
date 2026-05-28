@@ -213,6 +213,9 @@ python benchmarks/bench_intent_quant.py
 
 # Run per-block IntentQuant attention reference benchmark
 python benchmarks/bench_intent_quant_attention.py
+
+# Run optional Triton IntentQuant decode attention benchmark (requires GPU + Triton)
+python benchmarks/bench_triton_intent_quant_attention.py
 ```
 
 ---
@@ -304,6 +307,19 @@ per-block precision (FP16/FP8/INT8/INT4/INT4_RESIDUAL/SKIP) based on
 block policy, score, recency, and memory pressure. Includes a fake
 quant/dequant reconstruction error test.
 
+### bench_intent_quant_attention.py
+
+CPU reference for per-block mixed-precision fake quant/dequant within the
+selected-block attention path. Compares FP16-selected vs quantized-selected
+attention outputs and reports reconstruction error metrics.
+
+### bench_triton_intent_quant_attention.py
+
+Optional Triton prototype for single-token decode attention over selected
+KV pages with per-page precision (FP16 or INT8). Skips cleanly on systems
+without Triton or CUDA. No GPU speedup is claimed — this is a first kernel
+prototype for hardware experimentation.
+
 > CPU Ratio is not a GPU speedup claim. CPU timing is affected by PyTorch
 > dispatch overhead, gather overhead, cache behavior, tensor size, and
 > small-batch effects.
@@ -327,9 +343,10 @@ quant/dequant reconstruction error test.
 - [x] vLLM-style paged-attention bridge
 - [x] Intent-aware mixed-precision KV quantization policy simulator (IntentQuantizer)
 - [x] Fake quant/dequant reconstruction metrics (FP16/FP8/INT8/INT4/INT4_RESIDUAL)
-- [x] pytest coverage (84 tests)
-- [x] CPU benchmark scripts (7 benchmarks)
+- [x] pytest coverage (94 tests)
+- [x] CPU benchmark scripts (8 benchmarks)
 - [x] IntentQuant Attention Kernel — per-block fake quant/dequant in selected-block attention path
+- [x] Triton IntentQuant decode attention prototype (optional, GPU-only)
 
 ---
 
@@ -360,6 +377,7 @@ intent-attention-kernel/
         bench_dynamic_scoring.py  Dynamic block scoring evaluation
         bench_intent_quant.py     Intent-aware mixed-precision KV quantization
         bench_intent_quant_attention.py  Per-block quantized attention reference
+        bench_triton_intent_quant_attention.py  Optional Triton decode attention
         bench_kv_quant.py         KV cache quantisation memory analysis
         bench_prefetch.py         Speculative prefetch decode simulation
     docs/
@@ -383,6 +401,7 @@ intent-attention-kernel/
         intent_quant.py           Intent-aware mixed-precision KV quantization
         intent_quant_attention.py Per-block quantized attention reference
         kv_quant.py               INT8 KV cache quantisation
+        triton_intent_quant_attention.py Optional Triton IntentQuant decode attention               INT8 KV cache quantisation
         prefetch.py               Speculative KV block prefetching
         reference.py              Dense + selected-block attention
         synthetic_traces.py       Layout generators
@@ -411,7 +430,8 @@ python -m ruff check src tests benchmarks
 
 ## Roadmap (Future Work)
 
-- [ ] **Triton kernel** — iterate only over physical pages from block table
+- [x] **Triton IntentQuant decode kernel** — selected-page decode with per-page precision (FP16/INT8)
+- [ ] **Triton kernel** — iterate only over physical pages from block table (general)
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping
 - [ ] **Variable block sizes** — support non-uniform page sizes
 - [ ] **Integration with HuggingFace / vLLM** — plug into real inference

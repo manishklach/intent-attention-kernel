@@ -7,6 +7,13 @@ import torch
 
 from .block_metadata import BlockLayout, BlockPolicy
 from .block_table import BlockTable
+from .prefetch import (
+    BlockPrefetcher,
+    get_prefetcher,
+    get_prefetch_stream,
+    launch_prefetch_pages,
+    reset_prefetcher,
+)
 
 _triton_available: bool = False
 _cuda_available: bool = torch.cuda.is_available()
@@ -429,6 +436,26 @@ def _triton_impl_quant(
     return O
 
 
+def _compute_selected_page_ids(
+    layout: BlockLayout,
+    kv_len: int,
+    threshold: float = 0.5,
+    page_size: int = 128,
+) -> torch.Tensor:
+    """Return sorted unique page IDs selected by *layout* under *threshold*."""
+    selected = [
+        b for b in layout.blocks
+        if b.policy != BlockPolicy.SKIP
+        and (b.policy != BlockPolicy.ATTEND or (b.score is not None and b.score >= threshold))
+    ]
+    if not selected:
+        return torch.empty(0, dtype=torch.int32)
+    selected_layout = BlockLayout(selected)
+    bt = BlockTable(block_size=page_size)
+    pages, _ = bt.create_block_table(selected_layout, kv_len)
+    return torch.unique(pages).to(dtype=torch.int32)
+
+
 def semantic_block_attention_triton(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -438,6 +465,7 @@ def semantic_block_attention_triton(
     threshold: float = 0.5,
     return_debug: bool = False,
     use_quant: bool = False,
+    prefetch: bool = False,
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
     kv_tokens = k.size(-2)
     layout.validate(kv_tokens)
@@ -451,9 +479,31 @@ def semantic_block_attention_triton(
         from .reference import semantic_block_attention as _fallback
         out = _fallback(q, k, v, layout, causal=causal, return_debug=return_debug)
         if return_debug:
-            return out
+            out, debug = out
+            debug.setdefault("prefetched_page_ids", [])
+            return out, debug
         return out
 
+    # ---- prefetch: predict next-step pages and launch async load ----------
+    prefetched_page_ids: List[int] = []
+    if prefetch and _can_run_gpu_kernel():
+        prefetch_stream = get_prefetch_stream()
+        if prefetch_stream is not None:
+            prefetch_stream.synchronize()
+
+        current_pages = _compute_selected_page_ids(layout, kv_tokens, threshold=threshold)
+        current_pages_list = current_pages.tolist()
+
+        prefetcher = get_prefetcher()
+        predicted = prefetcher.predict_next(current_pages_list)
+        prefetcher.record(current_pages_list)
+        prefetched_page_ids = predicted
+
+        if predicted and prefetch_stream is not None:
+            predicted_t = torch.tensor(predicted, dtype=torch.int32, device=q.device)
+            launch_prefetch_pages(k, v, predicted_t, stream=prefetch_stream)
+
+    # ---- debug return ----------------------------------------------------
     if return_debug:
         selected = [
             b for b in layout.blocks
@@ -466,6 +516,7 @@ def semantic_block_attention_triton(
             "selected_block_names": [b.name for b in selected],
             "total_kv_tokens": kv_tokens,
             "selected_kv_tokens": selected_count,
+            "prefetched_page_ids": prefetched_page_ids,
         }
         return out, debug
 

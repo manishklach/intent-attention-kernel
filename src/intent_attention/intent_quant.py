@@ -65,7 +65,9 @@ class IntentQuantizer:
         medium_score_threshold: float = 0.40,
     ) -> None:
         if not 0.0 <= memory_pressure <= 1.0:
-            raise ValueError(f"memory_pressure must be in [0, 1], got {memory_pressure}")
+            raise ValueError(
+                f"memory_pressure must be in [0, 1], got {memory_pressure}"
+            )
         self.memory_pressure = memory_pressure
         self.preserve_recent = preserve_recent
         self.preserve_global = preserve_global
@@ -98,7 +100,9 @@ class IntentQuantizer:
                     return QuantPolicy(KVPrecision.FP8, "recent, moderate pressure")
                 return QuantPolicy(KVPrecision.FP8, "recent, preserved")
             if mp > 0.6:
-                return QuantPolicy(KVPrecision.INT4_RESIDUAL, "recent, high pressure, not preserved")
+                return QuantPolicy(
+                    KVPrecision.INT4_RESIDUAL, "recent, high pressure, not preserved"
+                )
             return QuantPolicy(KVPrecision.INT8, "recent, not preserved")
 
         # --- ATTEND ---------------------------------------------------------
@@ -191,7 +195,9 @@ class IntentQuantizer:
             policy = policies[block.name]
             n_tokens = block.end - block.start
             dense_bytes = 2 * n_tokens * head_dim * 2  # K+V fp16
-            quant_bytes = int(round(2 * n_tokens * head_dim * policy.estimated_bytes_per_value))
+            quant_bytes = int(
+                round(2 * n_tokens * head_dim * policy.estimated_bytes_per_value)
+            )
             rows.append(
                 {
                     "block": block.name,

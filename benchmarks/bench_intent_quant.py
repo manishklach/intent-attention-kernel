@@ -38,7 +38,9 @@ def _make_layout(total_tokens: int) -> BlockLayout:
                 BlockPolicy.ATTEND,
                 score=0.10,
             ),
-            SemanticBlock("recent", 2 * third + third // 2, total_tokens, BlockPolicy.RECENT),
+            SemanticBlock(
+                "recent", 2 * third + third // 2, total_tokens, BlockPolicy.RECENT
+            ),
         ]
     )
 
@@ -91,7 +93,9 @@ def main() -> None:
     ):
         recon, meta = fake_quantize_tensor(x, prec)
         err = compute_quant_error(x, recon)
-        results.append((prec.value, err["mse"], err["max_abs_error"], err["cosine_similarity"]))
+        results.append(
+            (prec.value, err["mse"], err["max_abs_error"], err["cosine_similarity"])
+        )
 
     print(f"{'Precision':>16} {'MSE':>14} {'Max Abs Err':>14} {'Cos Sim':>10}")
     print("-" * 56)
@@ -99,7 +103,9 @@ def main() -> None:
         print(f"{name:>16} {mse:>13.6e} {max_abs:>13.6e} {cs:>9.6f}")
 
     print()
-    print("IntentQuant-KV is a CPU simulation. No GPU accuracy or throughput claim is made.")
+    print(
+        "IntentQuant-KV is a CPU simulation. No GPU accuracy or throughput claim is made."
+    )
 
 
 if __name__ == "__main__":

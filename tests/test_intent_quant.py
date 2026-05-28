@@ -47,7 +47,11 @@ def test_low_score_gets_int4_or_skip() -> None:
     quant = IntentQuantizer(memory_pressure=0.0)
     low = SemanticBlock("low", 0, 128, BlockPolicy.ATTEND, score=0.1)
     p = quant.assign_block_precision(low)
-    assert p.precision in (KVPrecision.INT4, KVPrecision.INT4_RESIDUAL, KVPrecision.SKIP)
+    assert p.precision in (
+        KVPrecision.INT4,
+        KVPrecision.INT4_RESIDUAL,
+        KVPrecision.SKIP,
+    )
 
 
 def test_high_score_gets_int8_or_fp8() -> None:
@@ -104,7 +108,12 @@ def test_fake_quant_returns_same_shape() -> None:
 
 def test_error_metrics_contain_keys() -> None:
     x = torch.randn(1, 2, 16, 32)
-    for prec in (KVPrecision.FP8, KVPrecision.INT8, KVPrecision.INT4, KVPrecision.INT4_RESIDUAL):
+    for prec in (
+        KVPrecision.FP8,
+        KVPrecision.INT8,
+        KVPrecision.INT4,
+        KVPrecision.INT4_RESIDUAL,
+    ):
         recon, meta = fake_quantize_tensor(x, prec)
         for key in ("mse", "max_abs_error", "cosine_similarity"):
             assert key in meta, f"missing {key} in {prec}"

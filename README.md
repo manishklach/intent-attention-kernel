@@ -83,6 +83,47 @@ correctness. No real latency speedup is claimed without hardware validation.
 
 ---
 
+## IntentQuant-KV
+
+IntentQuant-KV explores the idea that **not every KV block deserves the
+same precision**.
+
+In agentic long-context inference, KV blocks have different semantic roles:
+
+- **Critical blocks** — system prompts, global memory, recent context —
+  are attended to every step and may need higher precision.
+- **Lower-score blocks** — old retrieved documents, tool outputs,
+  scratchpad regions — are attended to less frequently and can use
+  lower precision or residual quantization.
+- **Skipped blocks** contribute zero KV bytes.
+
+`IntentQuantizer` assigns a `KVPrecision` (FP16, FP8, INT8, INT4,
+INT4_RESIDUAL, or SKIP) to each block using:
+
+- **Block policy**: ALWAYS/GLOBAL blocks default to FP16; RECENT to FP8.
+- **Block score**: high-scoring ATTEND blocks retain higher precision;
+  low-scoring blocks are downgraded.
+- **Memory pressure**: a knob in [0, 1] that downgrades non-critical
+  blocks as pressure increases.
+- **Preserve flags**: `preserve_recent` and `preserve_global` keep
+  important blocks at higher precision even under moderate pressure.
+
+**This is CPU-first, analytical, and prototype-level.**
+
+- No GPU speedup is claimed.
+- No model accuracy or perplexity preservation is claimed.
+- Fake quantize/dequantize is only a CPU simulation using symmetric
+  absmax scaling.
+- The real benefit depends on dequant overhead, memory bandwidth,
+  page layout, page reuse, and attention fusion.
+
+```bash
+# Run the IntentQuant-KV benchmark
+python benchmarks/bench_intent_quant.py
+```
+
+---
+
 ## Architecture
 
 ```text

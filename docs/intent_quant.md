@@ -15,7 +15,10 @@ semantically different regions:
 - tool outputs, scratchpads, and intermediate reasoning traces, often
   attended to once or never
 
-## Why Uniform KV Quantization Is Suboptimal
+> Quantization should not be only a global model setting; it can also be an
+> execution policy driven by runtime intent.
+
+## Why Uniform KV Quantization Is Not Enough
 
 - **Over-preserving low-value blocks**: low-score ATTEND blocks and cold
   KV pages are quantized to the same precision as critical blocks, wasting
@@ -49,6 +52,63 @@ IntentQuant-KV assigns precision per block using:
 | INT4_RESIDUAL | 1.0 | Medium-score ATTEND — base INT4 + lightweight residual |
 | SKIP | 0.0 | Skipped or ignored blocks |
 
+## Policy Inputs
+
+The `IntentQuantizer` accepts:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `memory_pressure` | float [0, 1] | 0.0 | Higher values force more aggressive downgrades |
+| `preserve_recent` | bool | True | Keep recent blocks at FP8 or above |
+| `preserve_global` | bool | True | Keep global blocks at FP16 or above |
+| `high_score_threshold` | float | 0.75 | Attend score above this = high relevance |
+| `medium_score_threshold` | float | 0.40 | Attend score between this and high = medium |
+
+## Analytical Byte Model
+
+`estimate_layout_bytes` computes:
+
+- `dense_fp16_bytes`: bytes if all KV were stored in FP16
+- `intent_quant_bytes`: bytes after per-block precision assignment
+- `bytes_saved` / `bytes_saved_pct`: analytical savings
+- `precision_distribution`: number of tokens per precision level
+- `critical_full_precision_tokens`: tokens retained at FP16
+
+Byte counting uses:
+
+| Precision | Bytes per value |
+|---|---|
+| FP16 | 2.0 |
+| FP8 | 1.0 |
+| INT8 | 1.0 |
+| INT4 | 0.5 |
+| INT4_RESIDUAL | 1.0 |
+| SKIP | 0.0 |
+
+These are analytical estimates. Real GPU memory savings depend on page
+layout, alignment, scale factor storage, and kernel fusion.
+
+## Fake Quant/Dequant Simulation
+
+`fake_quantize_tensor` and `compute_quant_error` provide a CPU-only
+simulation of the quantization process:
+
+1. Compute symmetric absmax scale over the last dimension.
+2. Divide by scale, clamp to representable range, round.
+3. Reconstruct: multiply by scale.
+4. Compute error metrics: MSE, max absolute error, cosine similarity.
+
+For `INT4_RESIDUAL`, the process runs twice: once for the base INT4
+quantization and once for the residual (difference between original and
+base reconstruction).
+
+This simulation:
+
+- Does **not** produce real low-bit tensors (fp8, int8, int4).
+- Does **not** measure dequant overhead or bandwidth.
+- Does **not** guarantee that real hardware quantization would produce
+  similar error characteristics.
+
 ## Relation to Existing Work
 
 IntentQuant-KV is **not** a replacement for KIVI, KVQuant, or TurboQuant.
@@ -81,17 +141,23 @@ A future GPU kernel would:
 
 ## Limitations
 
-- **No real GPU kernel**: precision assignment is analytical only.
+- **No real GPU kernel**: precision assignment is analytical only. No
+  GPU kernel accepts per-block precision maps yet.
 - **No accuracy validation**: perplexity, downstream accuracy, and model
   sensitivity to mixed-precision KV have not been evaluated.
+- **No perplexity validation**: the effect of mixed-precision KV on
+  generation quality has not been measured.
 - **No calibration**: scale factors use simple absmax without
-  calibration or optimization.
+  calibration, optimization, or non-uniform grids.
 - **Fake quantisation**: `fake_quantize_tensor` is a CPU simulation that
   materializes reconstructed tensors. It does not measure real dequant
   overhead or bandwidth.
+- **Dequant overhead may dominate**: in many scenarios, the cost of
+  dequantizing INT4 or INT8 pages during the attention loop may exceed
+  the bandwidth savings from reading fewer bytes.
 - **No page-layout modelling**: real hardware benefit depends on whether
   mixed-precision pages can be stored contiguously or require extra
-  indirection.
+  indirection. Page alignment and scale factor storage are not modelled.
 - **No production claim**: this is a research prototype. Real benefit
   depends on dequant overhead, memory bandwidth pressure, page reuse,
   attention fusion, and hardware-level support for mixed-precision

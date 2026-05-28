@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "intent-attention"
 version = "0.1.0"
-description = "Intent-aware KV execution prototype for agentic long-context inference"
+description = "Intent-aware KV execution prototype for agentic long-context inference: semantic block selection, dynamic scoring, speculative prefetch, mixed-precision quantization policy simulation, and future GPU kernels"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}

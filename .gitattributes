@@ -1,0 +1,9 @@
+# Normalise all text files to LF on commit (CRLF on checkout for Windows users,
+# LF in the repository — GitHub raw view will show LF correctly)
+* text=auto eol=lf
+
+*.md text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.gitignore text eol=lf

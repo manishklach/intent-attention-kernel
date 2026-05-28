@@ -40,25 +40,31 @@ class TestValidation:
             layout.validate(10)
 
     def test_unsorted_blocks_fails(self):
-        layout = BlockLayout([
-            SemanticBlock("b", 10, 20, BlockPolicy.SKIP),
-            SemanticBlock("a", 0, 10, BlockPolicy.ALWAYS),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("b", 10, 20, BlockPolicy.SKIP),
+                SemanticBlock("a", 0, 10, BlockPolicy.ALWAYS),
+            ]
+        )
         with pytest.raises(ValueError, match="not sorted"):
             layout.validate(20)
 
     def test_overlapping_blocks_fails(self):
-        layout = BlockLayout([
-            SemanticBlock("a", 0, 10, BlockPolicy.ALWAYS),
-            SemanticBlock("b", 5, 15, BlockPolicy.SKIP),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("a", 0, 10, BlockPolicy.ALWAYS),
+                SemanticBlock("b", 5, 15, BlockPolicy.SKIP),
+            ]
+        )
         with pytest.raises(ValueError, match="overlap"):
             layout.validate(15)
 
     def test_attend_without_score_fails(self):
-        layout = BlockLayout([
-            SemanticBlock("a", 0, 10, BlockPolicy.ATTEND, score=None),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("a", 0, 10, BlockPolicy.ATTEND, score=None),
+            ]
+        )
         with pytest.raises(ValueError, match="score is None"):
             layout.validate(10)
 
@@ -69,35 +75,43 @@ class TestValidation:
 
 class TestSelectedBlocks:
     def test_selected_blocks_filters_skip(self):
-        layout = BlockLayout([
-            SemanticBlock("a", 0, 10, BlockPolicy.ALWAYS),
-            SemanticBlock("b", 10, 20, BlockPolicy.SKIP),
-            SemanticBlock("c", 20, 30, BlockPolicy.ATTEND, score=0.8),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("a", 0, 10, BlockPolicy.ALWAYS),
+                SemanticBlock("b", 10, 20, BlockPolicy.SKIP),
+                SemanticBlock("c", 20, 30, BlockPolicy.ATTEND, score=0.8),
+            ]
+        )
         names = [b.name for b in layout.selected_blocks()]
         assert names == ["a", "c"]
 
     def test_selected_token_indices(self):
-        layout = BlockLayout([
-            SemanticBlock("a", 0, 3, BlockPolicy.ALWAYS),
-            SemanticBlock("b", 3, 6, BlockPolicy.SKIP),
-            SemanticBlock("c", 6, 9, BlockPolicy.ATTEND, score=0.5),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("a", 0, 3, BlockPolicy.ALWAYS),
+                SemanticBlock("b", 3, 6, BlockPolicy.SKIP),
+                SemanticBlock("c", 6, 9, BlockPolicy.ATTEND, score=0.5),
+            ]
+        )
         assert layout.selected_token_indices() == [0, 1, 2, 6, 7, 8]
 
     def test_selected_token_count(self):
-        layout = BlockLayout([
-            SemanticBlock("a", 0, 100, BlockPolicy.ALWAYS),
-            SemanticBlock("b", 100, 200, BlockPolicy.SKIP),
-            SemanticBlock("c", 200, 300, BlockPolicy.ATTEND, score=0.5),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("a", 0, 100, BlockPolicy.ALWAYS),
+                SemanticBlock("b", 100, 200, BlockPolicy.SKIP),
+                SemanticBlock("c", 200, 300, BlockPolicy.ATTEND, score=0.5),
+            ]
+        )
         assert layout.selected_token_count() == 200
 
     def test_total_token_count(self):
-        layout = BlockLayout([
-            SemanticBlock("a", 0, 100, BlockPolicy.ALWAYS),
-            SemanticBlock("b", 100, 250, BlockPolicy.SKIP),
-        ])
+        layout = BlockLayout(
+            [
+                SemanticBlock("a", 0, 100, BlockPolicy.ALWAYS),
+                SemanticBlock("b", 100, 250, BlockPolicy.SKIP),
+            ]
+        )
         assert layout.total_token_count() == 250
 
 

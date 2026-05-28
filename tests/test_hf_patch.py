@@ -6,8 +6,11 @@ import pytest
 import torch
 
 from intent_attention.block_metadata import BlockLayout, BlockPolicy, SemanticBlock
-from intent_attention.cost_model import savings_report
-from intent_attention.hf_patch import _extract_layer_idx, _is_attention_module, patch_model
+from intent_attention.hf_patch import (
+    _extract_layer_idx,
+    _is_attention_module,
+    patch_model,
+)
 
 
 def test_extract_layer_idx() -> None:
@@ -79,11 +82,13 @@ def test_patch_model_with_simple_model() -> None:
     model = SimpleModel()
     input_ids = torch.randint(0, 100, (1, 32))
 
-    layout = BlockLayout([
-        SemanticBlock("system", 0, 8, BlockPolicy.ALWAYS),
-        SemanticBlock("docs", 8, 24, BlockPolicy.ATTEND, score=0.9),
-        SemanticBlock("rest", 24, 32, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("system", 0, 8, BlockPolicy.ALWAYS),
+            SemanticBlock("docs", 8, 24, BlockPolicy.ATTEND, score=0.9),
+            SemanticBlock("rest", 24, 32, BlockPolicy.SKIP),
+        ]
+    )
 
     call_count = 0
 
@@ -115,10 +120,12 @@ def test_patch_tiny_gpt2() -> None:
     inputs = tokenizer("Hello, world!", return_tensors="pt")
 
     def layout_fn(layer_idx: int) -> Optional[BlockLayout]:
-        return BlockLayout([
-            SemanticBlock("system", 0, 2, BlockPolicy.ALWAYS),
-            SemanticBlock("rest", 2, 6, BlockPolicy.ATTEND, score=0.9),
-        ])
+        return BlockLayout(
+            [
+                SemanticBlock("system", 0, 2, BlockPolicy.ALWAYS),
+                SemanticBlock("rest", 2, 6, BlockPolicy.ATTEND, score=0.9),
+            ]
+        )
 
     patch_model(model, layout_fn, verbose=False)
 

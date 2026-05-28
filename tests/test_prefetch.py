@@ -3,13 +3,13 @@ from __future__ import annotations
 import torch
 
 from intent_attention.block_metadata import BlockLayout, BlockPolicy, SemanticBlock
-from intent_attention.prefetch import BlockPrefetcher, get_prefetcher, reset_prefetcher
+from intent_attention.prefetch import BlockPrefetcher, reset_prefetcher
 from intent_attention.triton_kernel import semantic_block_attention_triton
-
 
 # ------------------------------------------------------------------ #
 #  BlockPrefetcher unit tests
 # ------------------------------------------------------------------ #
+
 
 class TestBlockPrefetcher:
 
@@ -67,11 +67,14 @@ class TestBlockPrefetcher:
 #  Edge: all blocks skip  →  no pages selected  →  prefetch no-op
 # ------------------------------------------------------------------ #
 
+
 def test_all_skip_layout_prefetch_noop():
-    layout = BlockLayout([
-        SemanticBlock("skip1", 0, 64, BlockPolicy.SKIP),
-        SemanticBlock("skip2", 64, 128, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("skip1", 0, 64, BlockPolicy.SKIP),
+            SemanticBlock("skip2", 64, 128, BlockPolicy.SKIP),
+        ]
+    )
     kv = torch.randn(1, 1, 128, 32)
     q = torch.randn(1, 1, 1, 32)
     reset_prefetcher()
@@ -86,15 +89,19 @@ def test_all_skip_layout_prefetch_noop():
 #  what we prefetch for the next step).
 # ------------------------------------------------------------------ #
 
+
 def _fixed_layout() -> BlockLayout:
-    return BlockLayout([
-        SemanticBlock("always", 0, 64, BlockPolicy.ALWAYS),
-        SemanticBlock("attend", 64, 128, BlockPolicy.ATTEND, score=1.0),
-    ])
+    return BlockLayout(
+        [
+            SemanticBlock("always", 0, 64, BlockPolicy.ALWAYS),
+            SemanticBlock("attend", 64, 128, BlockPolicy.ATTEND, score=1.0),
+        ]
+    )
 
 
 def test_prefetch_does_not_change_output():
     import pytest
+
     if not torch.cuda.is_available():
         pytest.skip("GPU required for full prefetch integration test")
 
@@ -131,16 +138,24 @@ def test_prefetch_does_not_change_output_cpu():
 #  Prefetch returns debug info when return_debug=True
 # ------------------------------------------------------------------ #
 
+
 def test_prefetch_debug_contains_prefetched_page_ids():
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 128, BlockPolicy.ALWAYS),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 128, BlockPolicy.ALWAYS),
+        ]
+    )
     q = torch.randn(1, 1, 4, 32)
     k = torch.randn(1, 1, 128, 32)
     v = torch.randn(1, 1, 128, 32)
 
     reset_prefetcher()
     _, debug = semantic_block_attention_triton(
-        q, k, v, layout, return_debug=True, prefetch=True,
+        q,
+        k,
+        v,
+        layout,
+        return_debug=True,
+        prefetch=True,
     )
     assert "prefetched_page_ids" in debug

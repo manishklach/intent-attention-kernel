@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Tuple, Union
 
 import torch
 
 from .block_metadata import BlockLayout, BlockPolicy
 from .block_table import BlockTable
-from .kv_quant import quantise_kv_cache
 
 _triton_available: bool = False
 _cuda_available: bool = torch.cuda.is_available()
@@ -17,6 +16,7 @@ def _probe_triton() -> bool:
     try:
         import triton  # noqa: F401
         import triton.language as tl  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -38,6 +38,7 @@ def _can_run_gpu_kernel() -> bool:
         return False
     try:
         from triton.runtime.driver import active
+
         return active.get_current_target().backend == "cuda"
     except Exception:
         return False
@@ -49,16 +50,33 @@ if _triton_available:
 
     @triton.jit
     def _quant_kernel(
-        K_fp16, V_fp16,
-        K_int8, V_int8,
-        K_scale, V_scale,
+        K_fp16,
+        V_fp16,
+        K_int8,
+        V_int8,
+        K_scale,
+        V_scale,
         num_pages: tl.int32,
-        stride_kp, stride_kh, stride_ks, stride_kd,
-        stride_vp, stride_vh, stride_vs, stride_vd,
-        stride_kp_out, stride_kh_out, stride_ks_out, stride_kd_out,
-        stride_vp_out, stride_vh_out, stride_vs_out, stride_vd_out,
-        stride_kp_s, stride_kh_s,
-        stride_vp_s, stride_vh_s,
+        stride_kp,
+        stride_kh,
+        stride_ks,
+        stride_kd,
+        stride_vp,
+        stride_vh,
+        stride_vs,
+        stride_vd,
+        stride_kp_out,
+        stride_kh_out,
+        stride_ks_out,
+        stride_kd_out,
+        stride_vp_out,
+        stride_vh_out,
+        stride_vs_out,
+        stride_vd_out,
+        stride_kp_s,
+        stride_kh_s,
+        stride_vp_s,
+        stride_vh_s,
         PAGE_SIZE: tl.constexpr,
         BLOCK_D: tl.constexpr,
     ):
@@ -68,8 +86,13 @@ if _triton_available:
         offs_s = tl.arange(0, PAGE_SIZE)
         offs_d = tl.arange(0, BLOCK_D)
 
-        k_ptrs = (K_fp16 + pid_p * stride_kp + pid_h * stride_kh
-                  + offs_s[:, None] * stride_ks + offs_d[None, :] * stride_kd)
+        k_ptrs = (
+            K_fp16
+            + pid_p * stride_kp
+            + pid_h * stride_kh
+            + offs_s[:, None] * stride_ks
+            + offs_d[None, :] * stride_kd
+        )
         k = tl.load(k_ptrs, mask=offs_s[:, None] < PAGE_SIZE, other=0.0).to(tl.float32)
 
         absmax = tl.max(tl.abs(k), axis=0)
@@ -79,15 +102,25 @@ if _triton_available:
         k_q = tl.libdevice.rint(k / scale[None, :])
         k_q = tl.clamp(k_q, -127, 127).to(tl.int8)
 
-        k_out_ptrs = (K_int8 + pid_p * stride_kp_out + pid_h * stride_kh_out
-                      + offs_s[:, None] * stride_ks_out + offs_d[None, :] * stride_kd_out)
+        k_out_ptrs = (
+            K_int8
+            + pid_p * stride_kp_out
+            + pid_h * stride_kh_out
+            + offs_s[:, None] * stride_ks_out
+            + offs_d[None, :] * stride_kd_out
+        )
         tl.store(k_out_ptrs, k_q, mask=offs_s[:, None] < PAGE_SIZE)
 
-        ks_ptrs = (K_scale + pid_p * stride_kp_s + pid_h * stride_kh_s + offs_d)
+        ks_ptrs = K_scale + pid_p * stride_kp_s + pid_h * stride_kh_s + offs_d
         tl.store(ks_ptrs, scale.to(tl.float16), mask=offs_d < BLOCK_D)
 
-        v_ptrs = (V_fp16 + pid_p * stride_vp + pid_h * stride_vh
-                  + offs_s[:, None] * stride_vs + offs_d[None, :] * stride_vd)
+        v_ptrs = (
+            V_fp16
+            + pid_p * stride_vp
+            + pid_h * stride_vh
+            + offs_s[:, None] * stride_vs
+            + offs_d[None, :] * stride_vd
+        )
         v = tl.load(v_ptrs, mask=offs_s[:, None] < PAGE_SIZE, other=0.0).to(tl.float32)
 
         absmax_v = tl.max(tl.abs(v), axis=0)
@@ -97,26 +130,47 @@ if _triton_available:
         v_q = tl.libdevice.rint(v / scale_v[None, :])
         v_q = tl.clamp(v_q, -127, 127).to(tl.int8)
 
-        v_out_ptrs = (V_int8 + pid_p * stride_vp_out + pid_h * stride_vh_out
-                      + offs_s[:, None] * stride_vs_out + offs_d[None, :] * stride_vd_out)
+        v_out_ptrs = (
+            V_int8
+            + pid_p * stride_vp_out
+            + pid_h * stride_vh_out
+            + offs_s[:, None] * stride_vs_out
+            + offs_d[None, :] * stride_vd_out
+        )
         tl.store(v_out_ptrs, v_q, mask=offs_s[:, None] < PAGE_SIZE)
 
-        vs_ptrs = (V_scale + pid_p * stride_vp_s + pid_h * stride_vh_s + offs_d)
+        vs_ptrs = V_scale + pid_p * stride_vp_s + pid_h * stride_vh_s + offs_d
         tl.store(vs_ptrs, scale_v.to(tl.float16), mask=offs_d < BLOCK_D)
 
     @triton.jit
     def _fwd_kernel_quant(
         Q,
-        K_int8, V_int8,
-        K_scale, V_scale,
+        K_int8,
+        V_int8,
+        K_scale,
+        V_scale,
         O,
         page_table,
-        stride_qb, stride_qh, stride_qm, stride_qd,
-        stride_kp, stride_kh, stride_ks, stride_kd,
-        stride_vp, stride_vh, stride_vs, stride_vd,
-        stride_kps, stride_khs,
-        stride_vps, stride_vhs,
-        stride_ob, stride_oh, stride_om, stride_od,
+        stride_qb,
+        stride_qh,
+        stride_qm,
+        stride_qd,
+        stride_kp,
+        stride_kh,
+        stride_ks,
+        stride_kd,
+        stride_vp,
+        stride_vh,
+        stride_vs,
+        stride_vd,
+        stride_kps,
+        stride_khs,
+        stride_vps,
+        stride_vhs,
+        stride_ob,
+        stride_oh,
+        stride_om,
+        stride_od,
         q_len: tl.int32,
         kv_len: tl.int32,
         n_selected: tl.int32,
@@ -133,8 +187,13 @@ if _triton_available:
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_d = tl.arange(0, BLOCK_D)
 
-        q_ptrs = (Q + pid_b * stride_qb + pid_h * stride_qh
-                  + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qd)
+        q_ptrs = (
+            Q
+            + pid_b * stride_qb
+            + pid_h * stride_qh
+            + offs_m[:, None] * stride_qm
+            + offs_d[None, :] * stride_qd
+        )
         q_mask = offs_m[:, None] < q_len
         q = tl.load(q_ptrs, mask=q_mask, other=0.0).to(tl.float32)
 
@@ -147,14 +206,24 @@ if _triton_available:
             kv_start = page_id * BLOCK_N
             offs_n = kv_start + tl.arange(0, BLOCK_N)
 
-            k_int8_ptrs = (K_int8 + pid_b * stride_kp + pid_h * stride_kh
-                           + page_id * stride_kp + offs_n[:, None] * stride_ks
-                           + offs_d[None, :] * stride_kd)
+            k_int8_ptrs = (
+                K_int8
+                + pid_b * stride_kp
+                + pid_h * stride_kh
+                + page_id * stride_kp
+                + offs_n[:, None] * stride_ks
+                + offs_d[None, :] * stride_kd
+            )
             k_mask = offs_n[:, None] < kv_len
             k_int8 = tl.load(k_int8_ptrs, mask=k_mask, other=0).to(tl.float32)
 
-            k_scale_ptrs = (K_scale + pid_b * stride_kps + pid_h * stride_khs
-                            + page_id * stride_kps + offs_d)
+            k_scale_ptrs = (
+                K_scale
+                + pid_b * stride_kps
+                + pid_h * stride_khs
+                + page_id * stride_kps
+                + offs_d
+            )
             k_s = tl.load(k_scale_ptrs, mask=offs_d < BLOCK_D, other=1.0)
             k = k_int8 * k_s[None, :]
 
@@ -173,13 +242,23 @@ if _triton_available:
             alpha = tl.exp(m_i - m_new)
             beta = tl.exp(m_ij - m_new)
 
-            v_int8_ptrs = (V_int8 + pid_b * stride_vp + pid_h * stride_vh
-                           + page_id * stride_vp + offs_n[:, None] * stride_vs
-                           + offs_d[None, :] * stride_vd)
+            v_int8_ptrs = (
+                V_int8
+                + pid_b * stride_vp
+                + pid_h * stride_vh
+                + page_id * stride_vp
+                + offs_n[:, None] * stride_vs
+                + offs_d[None, :] * stride_vd
+            )
             v_int8 = tl.load(v_int8_ptrs, mask=k_mask, other=0).to(tl.float32)
 
-            v_scale_ptrs = (V_scale + pid_b * stride_vps + pid_h * stride_vhs
-                            + page_id * stride_vps + offs_d)
+            v_scale_ptrs = (
+                V_scale
+                + pid_b * stride_vps
+                + pid_h * stride_vhs
+                + page_id * stride_vps
+                + offs_d
+            )
             v_s = tl.load(v_scale_ptrs, mask=offs_d < BLOCK_D, other=1.0)
             v = v_int8 * v_s[None, :]
 
@@ -190,8 +269,13 @@ if _triton_available:
 
         acc = acc / l_i[:, None]
 
-        o_ptrs = (O + pid_b * stride_ob + pid_h * stride_oh
-                  + offs_m[:, None] * stride_om + offs_d[None, :] * stride_od)
+        o_ptrs = (
+            O
+            + pid_b * stride_ob
+            + pid_h * stride_oh
+            + offs_m[:, None] * stride_om
+            + offs_d[None, :] * stride_od
+        )
         tl.store(o_ptrs, acc.to(O.dtype.element_ty), mask=q_mask)
 
 
@@ -202,14 +286,23 @@ def run_quant_gpu(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     batch, heads, total_tokens, d_head = k.shape
     num_pages = (total_tokens + page_size - 1) // page_size
-    padded = total_tokens
 
-    k_int8 = torch.empty(batch, heads, num_pages, page_size, d_head, dtype=torch.int8, device=k.device)
-    v_int8 = torch.empty(batch, heads, num_pages, page_size, d_head, dtype=torch.int8, device=v.device)
-    k_scale = torch.empty(batch, heads, num_pages, d_head, dtype=torch.float16, device=k.device)
-    v_scale = torch.empty(batch, heads, num_pages, d_head, dtype=torch.float16, device=v.device)
+    k_int8 = torch.empty(
+        batch, heads, num_pages, page_size, d_head, dtype=torch.int8, device=k.device
+    )
+    v_int8 = torch.empty(
+        batch, heads, num_pages, page_size, d_head, dtype=torch.int8, device=v.device
+    )
+    k_scale = torch.empty(
+        batch, heads, num_pages, d_head, dtype=torch.float16, device=k.device
+    )
+    v_scale = torch.empty(
+        batch, heads, num_pages, d_head, dtype=torch.float16, device=v.device
+    )
 
-    k_padded = torch.zeros(batch, heads, num_pages * page_size, d_head, dtype=k.dtype, device=k.device)
+    k_padded = torch.zeros(
+        batch, heads, num_pages * page_size, d_head, dtype=k.dtype, device=k.device
+    )
     v_padded = torch.zeros_like(k_padded)
     k_padded[..., :total_tokens, :] = k
     v_padded[..., :total_tokens, :] = v
@@ -219,16 +312,33 @@ def run_quant_gpu(
 
     grid = (num_pages, heads)
     _quant_kernel[grid](
-        k_4d, v_4d,
-        k_int8, v_int8,
-        k_scale, v_scale,
+        k_4d,
+        v_4d,
+        k_int8,
+        v_int8,
+        k_scale,
+        v_scale,
         num_pages,
-        k_4d.stride(0), k_4d.stride(1), k_4d.stride(2), k_4d.stride(3),
-        v_4d.stride(0), v_4d.stride(1), v_4d.stride(2), v_4d.stride(3),
-        k_int8.stride(0), k_int8.stride(1), k_int8.stride(2), k_int8.stride(3),
-        v_int8.stride(0), v_int8.stride(1), v_int8.stride(2), v_int8.stride(3),
-        k_scale.stride(0), k_scale.stride(1),
-        v_scale.stride(0), v_scale.stride(1),
+        k_4d.stride(0),
+        k_4d.stride(1),
+        k_4d.stride(2),
+        k_4d.stride(3),
+        v_4d.stride(0),
+        v_4d.stride(1),
+        v_4d.stride(2),
+        v_4d.stride(3),
+        k_int8.stride(0),
+        k_int8.stride(1),
+        k_int8.stride(2),
+        k_int8.stride(3),
+        v_int8.stride(0),
+        v_int8.stride(1),
+        v_int8.stride(2),
+        v_int8.stride(3),
+        k_scale.stride(0),
+        k_scale.stride(1),
+        v_scale.stride(0),
+        v_scale.stride(1),
         PAGE_SIZE=page_size,
         BLOCK_D=d_head,
     )
@@ -274,16 +384,35 @@ def _triton_impl_quant(
 
     _fwd_kernel_quant[grid](
         q,
-        k_int8, v_int8, k_scale, v_scale,
+        k_int8,
+        v_int8,
+        k_scale,
+        v_scale,
         O,
         pages,
-        q.stride(0), q.stride(1), q.stride(2), q.stride(3),
-        k_int8.stride(0), k_int8.stride(1), k_int8.stride(2), k_int8.stride(3),
-        v_int8.stride(0), v_int8.stride(1), v_int8.stride(2), v_int8.stride(3),
-        k_scale.stride(0), k_scale.stride(1),
-        v_scale.stride(0), v_scale.stride(1),
-        O.stride(0), O.stride(1), O.stride(2), O.stride(3),
-        q_len, kv_len, n_selected,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k_int8.stride(0),
+        k_int8.stride(1),
+        k_int8.stride(2),
+        k_int8.stride(3),
+        v_int8.stride(0),
+        v_int8.stride(1),
+        v_int8.stride(2),
+        v_int8.stride(3),
+        k_scale.stride(0),
+        k_scale.stride(1),
+        v_scale.stride(0),
+        v_scale.stride(1),
+        O.stride(0),
+        O.stride(1),
+        O.stride(2),
+        O.stride(3),
+        q_len,
+        kv_len,
+        n_selected,
         1.0 / math.sqrt(head_dim),
         BLOCK_M=128,
         BLOCK_N=page_size,
@@ -309,12 +438,16 @@ def semantic_block_attention_triton(
 
     if _can_run_gpu_kernel():
         if use_quant:
-            out = _triton_impl_quant(q, k, v, layout, causal=causal, threshold=threshold)
+            out = _triton_impl_quant(
+                q, k, v, layout, causal=causal, threshold=threshold
+            )
         else:
             from .triton_kernel import _triton_impl
+
             out = _triton_impl(q, k, v, layout, causal=causal, threshold=threshold)
     else:
         from .reference import semantic_block_attention as _fallback
+
         out = _fallback(q, k, v, layout, causal=causal, return_debug=return_debug)
         if return_debug:
             return out
@@ -322,9 +455,13 @@ def semantic_block_attention_triton(
 
     if return_debug:
         selected = [
-            b for b in layout.blocks
+            b
+            for b in layout.blocks
             if b.policy != BlockPolicy.SKIP
-            and (b.policy != BlockPolicy.ATTEND or (b.score is not None and b.score >= threshold))
+            and (
+                b.policy != BlockPolicy.ATTEND
+                or (b.score is not None and b.score >= threshold)
+            )
         ]
         selected_count = sum(b.end - b.start for b in selected)
         debug: Dict[str, Any] = {

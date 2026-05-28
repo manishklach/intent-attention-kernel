@@ -30,7 +30,7 @@ def main() -> None:
 
         key_reps = []
         for block in attend_blocks:
-            rep = k[..., block.start:block.end, :].mean(dim=-2).mean(dim=(0, 1))
+            rep = k[..., block.start : block.end, :].mean(dim=-2).mean(dim=(0, 1))
             key_reps.append(rep)
 
         scorer = BlockScorer()

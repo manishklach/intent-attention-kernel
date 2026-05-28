@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import torch
 
 from .block_metadata import BlockLayout, BlockPolicy, SemanticBlock
 from .block_table import BlockTable
-from .reference import semantic_block_attention, dense_attention
+from .reference import dense_attention
 
 
 def semantic_paged_attention(
@@ -35,13 +35,16 @@ def semantic_paged_attention(
     output       : (num_tokens, num_heads, head_size)
     """
     num_logical = block_table.shape[0]
-    total_kv = num_logical * block_size
 
     physical_blocks = []
     for block in layout.blocks:
         if block.policy == BlockPolicy.SKIP:
             continue
-        if block.policy == BlockPolicy.ATTEND and block.score is not None and block.score < 0.5:
+        if (
+            block.policy == BlockPolicy.ATTEND
+            and block.score is not None
+            and block.score < 0.5
+        ):
             continue
         logical_start = block.start // block_size
         logical_end = (block.end + block_size - 1) // block_size
@@ -53,7 +56,9 @@ def semantic_paged_attention(
         num_tokens = query.size(0)
         num_heads = query.size(1)
         head_size = query.size(2)
-        return torch.zeros(num_tokens, num_heads, head_size, device=query.device, dtype=query.dtype)
+        return torch.zeros(
+            num_tokens, num_heads, head_size, device=query.device, dtype=query.dtype
+        )
 
     unique_blocks = list(dict.fromkeys(physical_blocks))
 
@@ -86,12 +91,17 @@ def create_vllm_layout(
         blocks.append(SemanticBlock("system", curr, curr + sz, BlockPolicy.ALWAYS))
         curr += sz
 
-    body_start = curr
     body_blocks = num_logical_blocks - system_blocks - recent_blocks
     if body_blocks > 0:
         sz = body_blocks * block_size
         blocks.append(
-            SemanticBlock("retrieved_docs", curr, curr + sz, BlockPolicy.ATTEND, score=attend_threshold)
+            SemanticBlock(
+                "retrieved_docs",
+                curr,
+                curr + sz,
+                BlockPolicy.ATTEND,
+                score=attend_threshold,
+            )
         )
         curr += sz
 
@@ -104,7 +114,9 @@ def create_vllm_layout(
 
     if curr < num_logical_blocks * block_size:
         blocks.append(
-            SemanticBlock("padding", curr, num_logical_blocks * block_size, BlockPolicy.SKIP)
+            SemanticBlock(
+                "padding", curr, num_logical_blocks * block_size, BlockPolicy.SKIP
+            )
         )
 
     return BlockLayout(blocks)

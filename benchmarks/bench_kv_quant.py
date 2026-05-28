@@ -9,10 +9,6 @@ def main() -> None:
 
     B = 1
     H = 32
-    Q = 128
-
-    total_pages_fp16_bytes = 0
-    total_pages_int8_bytes = 0
 
     header = (
         f"{'KV tokens':>10} {'Skip ratio':>11} {'Selected':>10}"
@@ -24,19 +20,19 @@ def main() -> None:
     for kv_len in kv_len_sizes:
         total_tokens = kv_len
         num_pages = (total_tokens + page_size - 1) // page_size
-        fp16_page = 2 * page_size * d_head * 2
-        int8_page = page_size * d_head * 1
-        scale_page = d_head * 2
-
         for skip in skip_ratios:
             selected_pages = max(1, int(num_pages * (1.0 - skip)))
             selected_tokens = selected_pages * page_size
 
             fp16_dense = 2 * total_tokens * d_head * 2 * H * B  # H*B for full KV
             int8_selected = (
-                2 * selected_tokens * d_head * 1  # K+V int8
-                + 2 * selected_pages * d_head * 2  # K+V scales fp16
-            ) * H * B
+                (
+                    2 * selected_tokens * d_head * 1  # K+V int8
+                    + 2 * selected_pages * d_head * 2  # K+V scales fp16
+                )
+                * H
+                * B
+            )
 
             fp16_dense_b = int(round(fp16_dense / 1e6, 0))
             int8_selected_b = int(round(int8_selected / 1e6, 0))

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import math
 import random
 
-from intent_attention.block_metadata import BlockLayout, BlockPolicy, SemanticBlock
+from intent_attention.block_metadata import BlockLayout, BlockPolicy
 from intent_attention.prefetch import BlockPrefetcher
 from intent_attention.synthetic_traces import generate_agentic_layout
 
@@ -22,7 +21,9 @@ def simulate_decode(
     rng = random.Random(seed)
 
     # Collect the IDs of blocks that *could* be selected (non-SKIP).
-    eligible_ids = [i for i, b in enumerate(layout.blocks) if b.policy != BlockPolicy.SKIP]
+    eligible_ids = [
+        i for i, b in enumerate(layout.blocks) if b.policy != BlockPolicy.SKIP
+    ]
     if not eligible_ids:
         return float("nan")
 
@@ -68,7 +69,9 @@ def main() -> None:
     layout = generate_agentic_layout(total_tokens, seed=42)
 
     print("Speculative KV Block Prefetch — Decode Simulation")
-    print(f"Layout: {total_tokens} tokens, {len(layout.blocks)} blocks, {n_steps} steps")
+    print(
+        f"Layout: {total_tokens} tokens, {len(layout.blocks)} blocks, {n_steps} steps"
+    )
     print()
     header = f"{'Volatility':>12}  {'Hit Rate':>10}  {'Latency Hidden %':>18}"
     print(header)

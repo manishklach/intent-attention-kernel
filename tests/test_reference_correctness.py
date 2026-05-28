@@ -1,4 +1,3 @@
-import pytest
 import torch
 from intent_attention.block_metadata import SemanticBlock, BlockPolicy, BlockLayout
 from intent_attention.reference import dense_attention, semantic_block_attention
@@ -8,10 +7,12 @@ def test_semantic_equals_dense_over_selected():
     q = torch.randn(2, 4, 16, 64)
     k = torch.randn(2, 4, 128, 64)
     v = torch.randn(2, 4, 128, 64)
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 64, BlockPolicy.ALWAYS),
-        SemanticBlock("b", 64, 128, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 64, BlockPolicy.ALWAYS),
+            SemanticBlock("b", 64, 128, BlockPolicy.SKIP),
+        ]
+    )
     out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
 
     selected_k = k[:, :, :64, :]
@@ -27,9 +28,11 @@ def test_zero_selected_blocks_returns_zeros():
     q = torch.randn(1, 1, 8, 32)
     k = torch.randn(1, 1, 16, 32)
     v = torch.randn(1, 1, 16, 32)
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 16, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 16, BlockPolicy.SKIP),
+        ]
+    )
     out = semantic_block_attention(q, k, v, layout)
     assert torch.allclose(out, torch.zeros_like(q))
 
@@ -38,9 +41,11 @@ def test_zero_selected_blocks_returns_debug():
     q = torch.randn(1, 1, 8, 32)
     k = torch.randn(1, 1, 16, 32)
     v = torch.randn(1, 1, 16, 32)
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 16, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 16, BlockPolicy.SKIP),
+        ]
+    )
     out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
     assert torch.allclose(out, torch.zeros_like(q))
     assert dbg["selected_token_count"] == 0
@@ -51,13 +56,15 @@ def test_all_policies_integration():
     q = torch.randn(1, 2, 8, 32)
     k = torch.randn(1, 2, 128, 32)
     v = torch.randn(1, 2, 128, 32)
-    layout = BlockLayout([
-        SemanticBlock("always", 0, 32, BlockPolicy.ALWAYS),
-        SemanticBlock("attend", 32, 64, BlockPolicy.ATTEND, score=0.9),
-        SemanticBlock("skip", 64, 96, BlockPolicy.SKIP),
-        SemanticBlock("recent", 96, 112, BlockPolicy.RECENT),
-        SemanticBlock("global", 112, 128, BlockPolicy.GLOBAL),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("always", 0, 32, BlockPolicy.ALWAYS),
+            SemanticBlock("attend", 32, 64, BlockPolicy.ATTEND, score=0.9),
+            SemanticBlock("skip", 64, 96, BlockPolicy.SKIP),
+            SemanticBlock("recent", 96, 112, BlockPolicy.RECENT),
+            SemanticBlock("global", 112, 128, BlockPolicy.GLOBAL),
+        ]
+    )
     out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
     assert out.shape == (1, 2, 8, 32)
     assert dbg["selected_token_count"] == 96
@@ -82,7 +89,7 @@ def test_causal_does_not_look_ahead():
     with torch.no_grad():
         manual = torch.matmul(
             torch.softmax(
-                torch.matmul(q, k.transpose(-2, -1)) / (8 ** 0.5)
+                torch.matmul(q, k.transpose(-2, -1)) / (8**0.5)
                 + torch.triu(torch.full((4, 4), float("-inf")), diagonal=1),
                 dim=-1,
             ),

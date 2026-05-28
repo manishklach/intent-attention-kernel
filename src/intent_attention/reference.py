@@ -21,7 +21,9 @@ def dense_attention(
         q_len = q.size(-2)
         kv_len = k.size(-2)
         mask = torch.triu(
-            torch.full((q_len, kv_len), float("-inf"), device=q.device, dtype=scores.dtype),
+            torch.full(
+                (q_len, kv_len), float("-inf"), device=q.device, dtype=scores.dtype
+            ),
             diagonal=1,
         )
         scores = scores + mask
@@ -40,13 +42,15 @@ def _resolve_dynamic_scores(
     Returns a dict mapping block name -> computed score."""
     from .block_scorer import BlockScorer
 
-    targets = [b for b in layout.blocks if b.policy == BlockPolicy.ATTEND and b.score is None]
+    targets = [
+        b for b in layout.blocks if b.policy == BlockPolicy.ATTEND and b.score is None
+    ]
     if not targets:
         return {}
 
     key_reps: List[torch.Tensor] = []
     for block in targets:
-        rep = k[..., block.start:block.end, :].mean(dim=-2)
+        rep = k[..., block.start : block.end, :].mean(dim=-2)
         rep = rep.mean(dim=(0, 1))
         key_reps.append(rep)
 

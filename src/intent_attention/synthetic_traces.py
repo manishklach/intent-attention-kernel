@@ -20,12 +20,18 @@ def generate_agentic_layout(
 
     if curr < total_tokens:
         sz = min(512, total_tokens - curr)
-        blocks.append(SemanticBlock("system_prompt", curr, curr + sz, BlockPolicy.ALWAYS))
+        blocks.append(
+            SemanticBlock("system_prompt", curr, curr + sz, BlockPolicy.ALWAYS)
+        )
         curr += sz
 
     if curr < total_tokens:
         sz = min(256, total_tokens - curr)
-        blocks.append(SemanticBlock("memory_summary", curr, curr + sz, BlockPolicy.ATTEND, score=1.0))
+        blocks.append(
+            SemanticBlock(
+                "memory_summary", curr, curr + sz, BlockPolicy.ATTEND, score=1.0
+            )
+        )
         curr += sz
 
     for i in range(doc_blocks):
@@ -34,7 +40,9 @@ def generate_agentic_layout(
         sz = min(1024, total_tokens - curr)
         score = rng.random()
         policy = BlockPolicy.ATTEND if score >= score_threshold else BlockPolicy.SKIP
-        blocks.append(SemanticBlock(f"retrieved_doc_{i}", curr, curr + sz, policy, score=score))
+        blocks.append(
+            SemanticBlock(f"retrieved_doc_{i}", curr, curr + sz, policy, score=score)
+        )
         curr += sz
 
     for i in range(tool_blocks):
@@ -43,7 +51,9 @@ def generate_agentic_layout(
         sz = min(512, total_tokens - curr)
         score = rng.random()
         policy = BlockPolicy.ATTEND if score >= score_threshold else BlockPolicy.SKIP
-        blocks.append(SemanticBlock(f"tool_output_{i}", curr, curr + sz, policy, score=score))
+        blocks.append(
+            SemanticBlock(f"tool_output_{i}", curr, curr + sz, policy, score=score)
+        )
         curr += sz
 
     if curr < total_tokens:
@@ -53,7 +63,9 @@ def generate_agentic_layout(
                 SemanticBlock("ignored_context", curr, recent_start, BlockPolicy.SKIP)
             )
         blocks.append(
-            SemanticBlock("recent_context", recent_start, total_tokens, BlockPolicy.RECENT)
+            SemanticBlock(
+                "recent_context", recent_start, total_tokens, BlockPolicy.RECENT
+            )
         )
 
     return BlockLayout(blocks)

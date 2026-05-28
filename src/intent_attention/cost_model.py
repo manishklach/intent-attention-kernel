@@ -37,8 +37,12 @@ def semantic_attention_cost(
     dtype_bytes: int = 2,
 ) -> Dict[str, int]:
     return {
-        "flops": attention_flops(batch, heads, query_tokens, selected_kv_tokens, head_dim),
-        "kv_bytes": kv_read_bytes(batch, heads, selected_kv_tokens, head_dim, dtype_bytes),
+        "flops": attention_flops(
+            batch, heads, query_tokens, selected_kv_tokens, head_dim
+        ),
+        "kv_bytes": kv_read_bytes(
+            batch, heads, selected_kv_tokens, head_dim, dtype_bytes
+        ),
     }
 
 
@@ -52,11 +56,15 @@ def savings_report(
     dtype_bytes: int = 2,
 ) -> Dict[str, float]:
     dense_flops = attention_flops(batch, heads, query_tokens, total_kv_tokens, head_dim)
-    sem_flops = attention_flops(batch, heads, query_tokens, selected_kv_tokens, head_dim)
+    sem_flops = attention_flops(
+        batch, heads, query_tokens, selected_kv_tokens, head_dim
+    )
     dense_kv = kv_read_bytes(batch, heads, total_kv_tokens, head_dim, dtype_bytes)
     sem_kv = kv_read_bytes(batch, heads, selected_kv_tokens, head_dim, dtype_bytes)
 
-    flops_saved_pct = (dense_flops - sem_flops) / dense_flops * 100 if dense_flops else 0.0
+    flops_saved_pct = (
+        (dense_flops - sem_flops) / dense_flops * 100 if dense_flops else 0.0
+    )
     kv_bytes_saved_pct = (dense_kv - sem_kv) / dense_kv * 100 if dense_kv else 0.0
     selected_fraction = selected_kv_tokens / total_kv_tokens if total_kv_tokens else 0.0
 

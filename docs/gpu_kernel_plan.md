@@ -17,8 +17,29 @@ The planned GPU kernel maps as follows:
   pages belonging to `SKIP` blocks.
 - Each loaded page contributes `BLOCK_N` tokens to the local QK^T
   computation.  Online safe softmax accumulates across pages.
-- No causal mask is needed because pages are loaded in logical token
-  order (the block table preserves sequence order).
+
+### Causal Masking
+
+> The block table alone is not sufficient for causal masking.
+
+For **single-token decode**, if the query position is strictly after all
+selected KV tokens, causal masking may be unnecessary.  For **prefill**
+or **multi-query blocks**, logical page order is not sufficient — the GPU
+kernel must still support causal masking or query-position-aware masking.
+
+The current CPU reference implements causal masking via a `triu(-inf)`
+mask on the selected KV sub-tensor.  A future GPU kernel will need an
+equivalent mechanism (e.g., per-page token bounds or query-position
+comparison).
+
+### Partial Pages and Block Boundaries
+
+- If a selected semantic block starts or ends in the middle of a KV page,
+  the kernel needs per-page token bounds or per-element masks.
+- Adjacent or overlapping physical pages should be de-duplicated while
+  preserving logical token order.
+- The current `BlockTable` is a CPU simulation — it returns page IDs
+  without token-level masks.
 
 ## Proposed Signature
 
@@ -64,10 +85,11 @@ or similar).  Performance claims can only be made after:
 
 ## Current Status
 
-The repo contains **no real GPU kernel code** — only a stub function
-(`semantic_block_attention_triton`) that falls back to the CPU reference
-when Triton is absent and raises `NotImplementedError` when Triton/CUDA
-are present.  The actual Triton kernel body has not been written yet.
+The repo contains a Triton GPU kernel defined under the
+`if _triton_available` guard in `triton_kernel.py`.  The kernel is
+compiled and launched when Triton and CUDA are present; on CPU-only
+machines it falls back to the PyTorch reference implementation.
+Performance measurements on real NVIDIA hardware are still needed.
 
-**Every statement in this document describes a future design goal, not a
-current capability.**
+**Every statement in this document describes a design goal or
+analysis direction, not a validated performance claim.**

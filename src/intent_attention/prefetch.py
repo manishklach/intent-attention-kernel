@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import torch
 
-from .block_metadata import BlockLayout, BlockPolicy
 
 __all__ = [
     "BlockPrefetcher",
@@ -18,6 +17,7 @@ __all__ = [
 # ------------------------------------------------------------------ #
 #  BlockPrefetcher — frequency-based prediction of next-step blocks
 # ------------------------------------------------------------------ #
+
 
 class BlockPrefetcher:
     """Predicts which KV blocks will be attended at the next decode step
@@ -97,6 +97,7 @@ def _probe_triton() -> bool:
     try:
         import triton  # noqa: F401
         import triton.language as tl  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -110,12 +111,23 @@ if _triton_available:
 
     @triton.jit
     def _prefetch_kv_pages_kernel(
-        K, V,
+        K,
+        V,
         prefetch_buf,
         page_ids,
-        stride_kb, stride_kh, stride_kn, stride_kd,
-        stride_vb, stride_vh, stride_vn, stride_vd,
-        stride_pb, stride_ph, stride_pp, stride_ps, stride_pd,
+        stride_kb,
+        stride_kh,
+        stride_kn,
+        stride_kd,
+        stride_vb,
+        stride_vh,
+        stride_vn,
+        stride_vd,
+        stride_pb,
+        stride_ph,
+        stride_pp,
+        stride_ps,
+        stride_pd,
         kv_len: tl.int32,
         PAGE_SIZE: tl.constexpr,
         BLOCK_D: tl.constexpr,
@@ -130,17 +142,32 @@ if _triton_available:
         offs_d = tl.arange(0, BLOCK_D)
         n_mask = offs_n[:, None] < kv_len
 
-        k_ptrs = (K + pid_b * stride_kb + pid_h * stride_kh
-                  + offs_n[:, None] * stride_kn + offs_d[None, :] * stride_kd)
+        k_ptrs = (
+            K
+            + pid_b * stride_kb
+            + pid_h * stride_kh
+            + offs_n[:, None] * stride_kn
+            + offs_d[None, :] * stride_kd
+        )
         k_val = tl.load(k_ptrs, mask=n_mask, other=0.0, cache_modifier=".cg")
 
-        v_ptrs = (V + pid_b * stride_vb + pid_h * stride_vh
-                  + offs_n[:, None] * stride_vn + offs_d[None, :] * stride_vd)
-        v_val = tl.load(v_ptrs, mask=n_mask, other=0.0, cache_modifier=".cg")
+        v_ptrs = (
+            V
+            + pid_b * stride_vb
+            + pid_h * stride_vh
+            + offs_n[:, None] * stride_vn
+            + offs_d[None, :] * stride_vd
+        )
+        tl.load(v_ptrs, mask=n_mask, other=0.0, cache_modifier=".cg")
 
-        buf_ptrs = (prefetch_buf + pid_b * stride_pb + pid_h * stride_ph
-                    + pid_p * stride_pp
-                    + offs_n[:, None] * stride_ps + offs_d[None, :] * stride_pd)
+        buf_ptrs = (
+            prefetch_buf
+            + pid_b * stride_pb
+            + pid_h * stride_ph
+            + pid_p * stride_pp
+            + offs_n[:, None] * stride_ps
+            + offs_d[None, :] * stride_pd
+        )
         tl.store(buf_ptrs, k_val.to(tl.float16), mask=n_mask)
 
 else:
@@ -151,6 +178,7 @@ else:
 # ------------------------------------------------------------------ #
 #  Host launch helper
 # ------------------------------------------------------------------ #
+
 
 def launch_prefetch_pages(
     k: torch.Tensor,
@@ -174,8 +202,13 @@ def launch_prefetch_pages(
     batch, heads, kv_len, d_head = k.shape
 
     prefetch_buf = torch.empty(
-        batch, heads, num_pages, page_size, d_head,
-        dtype=torch.float16, device=k.device,
+        batch,
+        heads,
+        num_pages,
+        page_size,
+        d_head,
+        dtype=torch.float16,
+        device=k.device,
     )
 
     grid = (batch, heads, num_pages)
@@ -183,11 +216,22 @@ def launch_prefetch_pages(
     if stream is not None:
         with torch.cuda.stream(stream):
             _prefetch_kv_pages_kernel[grid](
-                k, v, prefetch_buf, page_ids,
-                k.stride(0), k.stride(1), k.stride(2), k.stride(3),
-                v.stride(0), v.stride(1), v.stride(2), v.stride(3),
-                prefetch_buf.stride(0), prefetch_buf.stride(1),
-                prefetch_buf.stride(2), prefetch_buf.stride(3),
+                k,
+                v,
+                prefetch_buf,
+                page_ids,
+                k.stride(0),
+                k.stride(1),
+                k.stride(2),
+                k.stride(3),
+                v.stride(0),
+                v.stride(1),
+                v.stride(2),
+                v.stride(3),
+                prefetch_buf.stride(0),
+                prefetch_buf.stride(1),
+                prefetch_buf.stride(2),
+                prefetch_buf.stride(3),
                 prefetch_buf.stride(4),
                 kv_len,
                 PAGE_SIZE=page_size,
@@ -195,11 +239,22 @@ def launch_prefetch_pages(
             )
     else:
         _prefetch_kv_pages_kernel[grid](
-            k, v, prefetch_buf, page_ids,
-            k.stride(0), k.stride(1), k.stride(2), k.stride(3),
-            v.stride(0), v.stride(1), v.stride(2), v.stride(3),
-            prefetch_buf.stride(0), prefetch_buf.stride(1),
-            prefetch_buf.stride(2), prefetch_buf.stride(3),
+            k,
+            v,
+            prefetch_buf,
+            page_ids,
+            k.stride(0),
+            k.stride(1),
+            k.stride(2),
+            k.stride(3),
+            v.stride(0),
+            v.stride(1),
+            v.stride(2),
+            v.stride(3),
+            prefetch_buf.stride(0),
+            prefetch_buf.stride(1),
+            prefetch_buf.stride(2),
+            prefetch_buf.stride(3),
             prefetch_buf.stride(4),
             kv_len,
             PAGE_SIZE=page_size,

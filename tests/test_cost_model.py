@@ -56,8 +56,12 @@ class TestSavingsReport:
     def test_report_keys(self):
         report = savings_report(2, 4, 128, 4096, 1024, 128)
         expected_keys = {
-            "dense_flops", "semantic_flops", "dense_kv_bytes",
-            "semantic_kv_bytes", "flops_saved_pct", "kv_bytes_saved_pct",
+            "dense_flops",
+            "semantic_flops",
+            "dense_kv_bytes",
+            "semantic_kv_bytes",
+            "flops_saved_pct",
+            "kv_bytes_saved_pct",
             "selected_fraction",
         }
         assert set(report.keys()) == expected_keys

@@ -15,12 +15,14 @@ class BlockPolicy(StrEnum):
     GLOBAL = auto()
 
 
-SELECTED_POLICIES = frozenset({
-    BlockPolicy.ALWAYS,
-    BlockPolicy.ATTEND,
-    BlockPolicy.RECENT,
-    BlockPolicy.GLOBAL,
-})
+SELECTED_POLICIES = frozenset(
+    {
+        BlockPolicy.ALWAYS,
+        BlockPolicy.ATTEND,
+        BlockPolicy.RECENT,
+        BlockPolicy.GLOBAL,
+    }
+)
 
 
 @dataclass

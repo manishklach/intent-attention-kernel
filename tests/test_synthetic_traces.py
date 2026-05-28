@@ -1,5 +1,4 @@
-import pytest
-from intent_attention.block_metadata import BlockPolicy, BlockLayout
+from intent_attention.block_metadata import BlockPolicy
 from intent_attention.synthetic_traces import (
     generate_agentic_layout,
     layout_from_policy_dict,
@@ -28,9 +27,9 @@ class TestGenerateAgenticLayout:
         # They may occasionally match but that's astronomically unlikely
         block_names_match = [b.name for b in a.blocks] == [b.name for b in b.blocks]
         selected_count_match = a.selected_token_count() == b.selected_token_count()
-        assert not (block_names_match and selected_count_match), (
-            "Expected different seeds to produce different layouts"
-        )
+        assert not (
+            block_names_match and selected_count_match
+        ), "Expected different seeds to produce different layouts"
 
     def test_small_total_tokens(self):
         layout = generate_agentic_layout(128)
@@ -47,8 +46,10 @@ class TestGenerateAgenticLayout:
         layout = generate_agentic_layout(8192, doc_blocks=0, tool_blocks=0)
         for block in layout.selected_blocks():
             assert block.policy in (
-                BlockPolicy.ALWAYS, BlockPolicy.ATTEND,
-                BlockPolicy.RECENT, BlockPolicy.GLOBAL,
+                BlockPolicy.ALWAYS,
+                BlockPolicy.ATTEND,
+                BlockPolicy.RECENT,
+                BlockPolicy.GLOBAL,
             )
 
 

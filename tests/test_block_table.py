@@ -4,11 +4,13 @@ from intent_attention.block_table import BlockTable
 
 
 def test_block_table_creation():
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 64, BlockPolicy.ALWAYS),
-        SemanticBlock("b", 64, 128, BlockPolicy.SKIP),
-        SemanticBlock("c", 128, 192, BlockPolicy.ATTEND, score=0.8),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 64, BlockPolicy.ALWAYS),
+            SemanticBlock("b", 64, 128, BlockPolicy.SKIP),
+            SemanticBlock("c", 128, 192, BlockPolicy.ATTEND, score=0.8),
+        ]
+    )
     bt = BlockTable(block_size=64)
     table, tokens = bt.create_block_table(layout, 192)
     assert tokens == 128
@@ -18,9 +20,11 @@ def test_block_table_creation():
 
 
 def test_block_table_empty():
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 64, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 64, BlockPolicy.SKIP),
+        ]
+    )
     bt = BlockTable(block_size=64)
     table, tokens = bt.create_block_table(layout, 64)
     assert tokens == 0
@@ -28,9 +32,11 @@ def test_block_table_empty():
 
 
 def test_block_table_spanning_multiple_pages():
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 150, BlockPolicy.ALWAYS),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 150, BlockPolicy.ALWAYS),
+        ]
+    )
     bt = BlockTable(block_size=64)
     table, tokens = bt.create_block_table(layout, 150)
     assert tokens == 150
@@ -39,9 +45,11 @@ def test_block_table_spanning_multiple_pages():
 
 
 def test_block_table_mid_block_start():
-    layout = BlockLayout([
-        SemanticBlock("a", 60, 130, BlockPolicy.ALWAYS),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 60, 130, BlockPolicy.ALWAYS),
+        ]
+    )
     bt = BlockTable(block_size=64)
     table, tokens = bt.create_block_table(layout, 130)
     assert tokens == 70
@@ -52,9 +60,11 @@ def test_block_table_mid_block_start():
 
 
 def test_block_table_two_pages():
-    layout = BlockLayout([
-        SemanticBlock("a", 32, 96, BlockPolicy.ALWAYS),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 32, 96, BlockPolicy.ALWAYS),
+        ]
+    )
     bt = BlockTable(block_size=64)
     table, tokens = bt.create_block_table(layout, 96)
     assert tokens == 64
@@ -63,9 +73,11 @@ def test_block_table_two_pages():
 
 
 def test_block_table_dtype():
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 64, BlockPolicy.ALWAYS),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 64, BlockPolicy.ALWAYS),
+        ]
+    )
     bt = BlockTable(block_size=64)
     table, _ = bt.create_block_table(layout, 64)
     assert table.dtype == torch.int32

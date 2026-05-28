@@ -22,13 +22,19 @@ def test_round_trip_error_below_one_percent():
     k_err = (k - k_hat).abs().max() / k.abs().max()
     v_err = (v - v_hat).abs().max() / v.abs().max()
 
-    assert k_err.item() < 0.01, f"K round-trip relative error {k_err.item():.5f} >= 0.01"
-    assert v_err.item() < 0.01, f"V round-trip relative error {v_err.item():.5f} >= 0.01"
+    assert (
+        k_err.item() < 0.01
+    ), f"K round-trip relative error {k_err.item():.5f} >= 0.01"
+    assert (
+        v_err.item() < 0.01
+    ), f"V round-trip relative error {v_err.item():.5f} >= 0.01"
 
 
 def test_round_trip_extreme_values():
-    page_size, d_head = 32, 16
-    k = torch.tensor([[-127.0, 0.0, 127.0, 63.0]] * page_size, dtype=torch.float16).T.contiguous()
+    page_size = 32
+    k = torch.tensor(
+        [[-127.0, 0.0, 127.0, 63.0]] * page_size, dtype=torch.float16
+    ).T.contiguous()
     v = k.clone()
 
     k_int8, v_int8, ks, vs = quantise_kv_page(k, v)
@@ -86,13 +92,16 @@ def test_skip_blocks_not_dequantised():
     k = torch.randn(1, 1, 64, 32, dtype=torch.float16)
     v = torch.randn(1, 1, 64, 32, dtype=torch.float16)
 
-    layout = BlockLayout([
-        SemanticBlock("keep", 0, 32, BlockPolicy.ALWAYS),
-        SemanticBlock("skip_me", 32, 64, BlockPolicy.SKIP),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("keep", 0, 32, BlockPolicy.ALWAYS),
+            SemanticBlock("skip_me", 32, 64, BlockPolicy.SKIP),
+        ]
+    )
 
     counter = DequantCounter()
     import intent_attention.kv_quant as kvq
+
     orig_deq = kvq.dequantise_kv_page
     kvq.dequantise_kv_page = counter
 

@@ -2,28 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   pull_request:
-    branches: [master]
+    branches: [master, main]
 
 jobs:
-  test:
+  tests:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11"]
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
 
       - name: Install package
         run: pip install -e ".[dev]"
 
-      - name: Py compile check
-        run: for f in src/intent_attention/*.py; do python -m py_compile "$f"; done
+      - name: Compile source files
+        run: python -m py_compile src/intent_attention/*.py
 
       - name: Run tests
         run: pytest -q
@@ -31,5 +40,5 @@ jobs:
       - name: Run cost model benchmark
         run: python benchmarks/bench_cost_model.py
 
-      - name: Run CPU benchmark
+      - name: Run CPU reference benchmark
         run: python benchmarks/bench_cpu_reference.py

@@ -34,14 +34,18 @@ def _is_attention_module(module: nn.Module) -> bool:
 def _log_savings(module_name: str, kv_tokens: int, layout: BlockLayout) -> None:
     selected = layout.selected_token_count()
     report = savings_report(
-        batch=1, heads=1, query_tokens=1,
+        batch=1,
+        heads=1,
+        query_tokens=1,
         total_kv_tokens=kv_tokens,
         selected_kv_tokens=selected,
         head_dim=1,
     )
     pct = report["flops_saved_pct"]
-    print(f"  [{module_name}] KV: {kv_tokens} -> {selected} tokens"
-          f" ({pct:.1f}% FLOPs saved)")
+    print(
+        f"  [{module_name}] KV: {kv_tokens} -> {selected} tokens"
+        f" ({pct:.1f}% FLOPs saved)"
+    )
 
 
 def _patch_single(

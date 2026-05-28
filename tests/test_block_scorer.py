@@ -1,4 +1,3 @@
-import pytest
 import torch
 from intent_attention.block_scorer import BlockScorer
 from intent_attention.block_metadata import SemanticBlock, BlockPolicy, BlockLayout
@@ -32,7 +31,6 @@ def test_threshold_filtering_via_scorer():
     """Scores above threshold should be >= threshold; those below should be <."""
     head_dim = 64
     q = torch.randn(1, 2, 8, head_dim)
-    k = torch.randn(1, 2, 128, head_dim)
 
     rep_aligned = q.mean(dim=-2).mean(dim=(0, 1))
     rep_ortho = torch.zeros(head_dim)
@@ -50,10 +48,12 @@ def test_dynamic_scoring_populates_debug():
     k = torch.randn(1, 1, 64, 32)
     v = torch.randn(1, 1, 64, 32)
 
-    layout = BlockLayout([
-        SemanticBlock("always", 0, 32, BlockPolicy.ALWAYS),
-        SemanticBlock("dynamic_attend", 32, 64, BlockPolicy.ATTEND, score=None),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("always", 0, 32, BlockPolicy.ALWAYS),
+            SemanticBlock("dynamic_attend", 32, 64, BlockPolicy.ATTEND, score=None),
+        ]
+    )
 
     out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
 
@@ -69,10 +69,12 @@ def test_static_score_still_works():
     k = torch.randn(1, 1, 64, 32)
     v = torch.randn(1, 1, 64, 32)
 
-    layout = BlockLayout([
-        SemanticBlock("a", 0, 32, BlockPolicy.ALWAYS),
-        SemanticBlock("b", 32, 64, BlockPolicy.ATTEND, score=0.75),
-    ])
+    layout = BlockLayout(
+        [
+            SemanticBlock("a", 0, 32, BlockPolicy.ALWAYS),
+            SemanticBlock("b", 32, 64, BlockPolicy.ATTEND, score=0.75),
+        ]
+    )
 
     out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
     assert "dynamic_scores" not in dbg

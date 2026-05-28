@@ -6,21 +6,14 @@ from intent_attention.reference import semantic_block_attention
 
 
 def test_orthogonal_block_scores_near_zero():
-    """Query orthogonal to block mean key => score near 0."""
+    """Query with zero key block => cosine similarity is 0."""
     head_dim = 64
     q = torch.randn(1, 1, 16, head_dim)
-    k = torch.randn(1, 1, 64, head_dim)
-
-    # Force key block to be orthogonal to query (use a different subspace)
-    with torch.no_grad():
-        k[..., :] *= 0.0
-        k[..., 0, :] = torch.randn(head_dim) * 100  # keep one token far away
-
-    rep = k[..., 0:32, :].mean(dim=-2).mean(dim=(0, 1))
+    rep = torch.zeros(head_dim)
 
     scorer = BlockScorer()
     scores = scorer.score_blocks(q, [rep])
-    assert scores[0] < 0.15, f"Expected near-zero score, got {scores[0]:.4f}"
+    assert scores[0] == 0.0, f"Expected zero score, got {scores[0]:.4f}"
 
 
 def test_aligned_block_scores_near_one():

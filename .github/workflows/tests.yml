@@ -52,6 +52,9 @@ jobs:
       - name: Run SpecAttn benchmark
         run: python benchmarks/bench_specattn.py --dry-run
 
+      - name: Run MLA decode benchmark
+        run: python benchmarks/bench_mla_decode.py --dry-run
+
       - name: Run prefetch simulation benchmark
         run: python benchmarks/bench_prefetch.py
 

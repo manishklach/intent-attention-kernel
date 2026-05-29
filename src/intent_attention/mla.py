@@ -96,13 +96,41 @@ def mla_triton_decode(q: torch.Tensor, block_table: MLABlockTable,
                       W_QK_fused: torch.Tensor, W_VO_fused: torch.Tensor,
                       layout: BlockLayout, threshold: float = 0.5,
                       return_debug: bool = False):
-    if not q.is_cuda:
-        return mla_sparse_decode_reference(q, block_table, W_QK_fused, W_VO_fused,
-                                           layout, threshold, return_debug)
-    try:
-        import triton
-    except ImportError:
-        return mla_sparse_decode_reference(q, block_table, W_QK_fused, W_VO_fused,
-                                           layout, threshold, return_debug)
-    return mla_sparse_decode_reference(q, block_table, W_QK_fused, W_VO_fused,
-                                       layout, threshold, return_debug)
+    batch, n_heads, q_len, d_head = q.shape
+    config = block_table.config
+    q_flat = q.permute(0, 2, 1, 3).reshape(batch, q_len, n_heads * d_head).float()
+    q_absorb = torch.matmul(q_flat, W_QK_fused.float())
+    selected = [b for b in layout.selected_blocks()
+                if b.score is None or b.score >= threshold]
+    latent_parts = []
+    for b in selected:
+        c = block_table.get_latent(layout.blocks.index(b) if isinstance(b.name, str) else b.name)
+        if c is not None:
+            latent_parts.append(c)
+    if not latent_parts:
+        out = torch.zeros(batch, q_len, config.d_model)
+        return (out, {"selected_latent_tokens": 0}) if return_debug else (out, None)
+
+    from .triton_mla_decode import mla_decode_triton as _triton_impl, is_triton_available
+    if is_triton_available() and q.is_cuda:
+        page_sizes = [c.shape[0] for c in latent_parts]
+        page_size = page_sizes[0] if len(set(page_sizes)) == 1 else min(page_sizes)
+        C = torch.cat(latent_parts, dim=0).float()
+        page_table = torch.arange(len(latent_parts), dtype=torch.int32, device=q.device)
+        out = _triton_impl(q_absorb.float(), C, W_VO_fused.float(), page_table, page_size=page_size)
+    else:
+        C = torch.cat(latent_parts, dim=0).float()
+        scale = 1.0 / math.sqrt(config.d_c)
+        scores = torch.matmul(q_absorb, C.T) * scale
+        attn_w = F.softmax(scores, dim=-1)
+        context = torch.matmul(attn_w, C)
+        out = torch.matmul(context, W_VO_fused.float()).half()
+    if not return_debug:
+        return out, None
+    total_tokens = sum(b.end - b.start for b in layout.blocks)
+    latent_tokens = sum(c.shape[0] for c in latent_parts)
+    debug = {"selected_block_names": [b.name for b in selected],
+             "selected_latent_tokens": latent_tokens,
+             "total_kv_tokens": total_tokens,
+             "mla_memory_bytes": block_table.memory_bytes()}
+    return out, debug

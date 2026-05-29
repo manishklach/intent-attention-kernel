@@ -300,6 +300,21 @@ python -c "from intent_attention import triton_semantic_attention; help(triton_s
 
 `reference.py` now exports `selected_block_attention(q, k, v, block_starts, block_ends, ...)` which dispatches to the Triton kernel (if GPU available) or a CPU block-loop fallback. `dense_attention` now also accepts an optional `mask` parameter for external attention masks.
 
+### 19. MLA Triton Decode Kernel (`triton_mla_decode.py`)
+
+A GPU decode kernel for Multi-Head Latent Attention operating in the compressed latent dimension `d_c`. The kernel:
+- Takes pre-absorbed query `q_absorb` [batch, q_len, d_c], latent `C` [total_tokens, d_c], and absorbed output weights `W_VO` [d_c, d_out]
+- Iterates over selected latent pages with online softmax accumulation
+- Projects the accumulated context through `W_VO` at the end
+- Falls back to CPU when Triton or CUDA is unavailable
+
+This enables the ~8× KV compression benefit of MLA (at DeepSeek scale) on GPU. The `mla_triton_decode()` entry point in `mla.py` handles the end-to-end pipeline: query projection, block selection, latent gathering, and kernel dispatch.
+
+```bash
+# Dry-run (no GPU required)
+python benchmarks/bench_mla_decode.py --dry-run
+```
+
 ---
 
 ## IntentQuant-KV
@@ -776,7 +791,8 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] selected_block_attention dispatch (GPU Triton → CPU block-loop)
 - [x] block-level scoring functions (score_blocks, score_layout)
 - [x] Causal selected-block attention with position-aware masking
-- [x] pytest coverage (252 tests)
+- [x] MLA Triton decode kernel (compressed latent attention on GPU with CPU fallback)
+- [x] pytest coverage (257 tests)
 
 ---
 
@@ -869,6 +885,7 @@ intent-attention-kernel/
         triton_adaptive_format_attention.py Triton adaptive-format decode kernel
         triton_intent_quant_attention.py Optional Triton IntentQuant decode attention
         triton_selected_block_attn.py  Selected-block range Triton kernel
+        triton_mla_decode.py      MLA compressed latent attention Triton kernel
         vllm_bridge.py            vLLM-style paged-attention bridge
     tests/                        Test suite (244 tests)
     CHANGELOG.md
@@ -902,13 +919,13 @@ python -m ruff check src tests benchmarks
 - [x] **MLA block table** — compressed latent KV attention reference
 - [x] **SpecAttn controller** — verification-guided block selection with EMA tracking
 - [x] **Selected-block Triton kernel** — block-range iteration with CPU fallback
+- [x] **MLA Triton decode kernel** — compressed latent attention with online softmax
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping
 - [ ] **Variable block sizes** — support non-uniform page sizes
 - [ ] **Integration with HuggingFace / vLLM** — plug into real inference
       engines
 - [ ] **Trained routing** — replace heuristic scoring with learned block
       selection
-- [ ] **MLA Triton kernel** — GPU decode for compressed latent attention
 - [ ] **SpecAttn end-to-end on GPU** — real draft-verify loop with block selection
 
 ---

@@ -88,10 +88,10 @@ KV Block Router
 Kernel Metadata
      |
      v
-Selected / IntentQuant / Adaptive Format Attention Path (CPU reference)
-     |
-     v
-Future Triton/CUDA Kernel (optional prototype exists for adaptive-format)
+Selected / IntentQuant / Adaptive Format / MLA Decode Attention Path (CPU reference)
+      |
+      v
+Triton/CUDA Kernels (optional prototypes: adaptive-format, selected-block, MLA decode)
 ```
 
 ### Adaptive Format KV Attention
@@ -125,10 +125,11 @@ Future Triton/CUDA Kernel (optional prototype exists for adaptive-format)
 | SpecAttn verification-guided selection | `src/.../specattn.py` | Stable |
 | Selected-block range Triton kernel | `src/.../triton_selected_block_attn.py` | Prototype |
 | `selected_block_attention` dispatch | `src/.../reference.py` | Stable |
+| MLA Triton decode kernel (compressed latent) | `src/.../triton_mla_decode.py` | Prototype (GPU) |
 
 ### Tests
 
-- 244+ unit and integration tests (pytest) (Triton tests skip without GPU)
+- 257+ unit and integration tests (pytest) (Triton tests skip without GPU)
 - All CPU tests pass with no CUDA or Triton required
 
 ---
@@ -160,7 +161,7 @@ We are honest about what has and has not been measured:
 
 | Limitation | Impact |
 |---|---|
-| No production Triton/CUDA kernel | All attention is CPU reference; no GPU speedup claim possible |
+| No production-grade Triton/CUDA kernel | GPU kernels are optional prototypes with CPU fallback; no production GPU speedup claim |
 | Causal selected-block attention is implemented on CPU via `original_kv_positions` | Triton GPU paths do not support causal yet. Partial-page token bounds for paged KV not implemented |
 | No real model quality validation | Perplexity proxy uses post-hoc quant/dequant on past_key_values, not real KV-cache replacement |
 | Heuristic router (not learned) | Block scoring and routing are hardcoded heuristics; no guarantee of optimality |
@@ -193,7 +194,7 @@ We are honest about what has and has not been measured:
 6. **Comparison against baselines** — measure perplexity and GPU throughput
    against KIVI, KVQuant, and dense attention on equivalent hardware.
 
-7. **MLA Triton kernel** — GPU decode for compressed latent attention with absorbed weight fusion.
+7. ~~**MLA Triton kernel** — GPU decode for compressed latent attention with absorbed weight fusion.~~ — **Done.**
 
 8. **SpecAttn end-to-end on GPU** — real draft-verify loop with block selection on GPU hardware.
 

@@ -312,7 +312,7 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 <div class="arch-node"><span class="label">Analytical Cost Model</span><br>FLOP and KV-byte savings</div>
 <div class="arch-node"><span class="label">Synthetic Trace Generator</span><br>Deterministic agentic layouts</div>
 <div class="arch-node"><span class="label">Benchmark Scripts</span><br>15 CPU benchmarks</div>
-<div class="arch-node"><span class="label">pytest Suite</span><br>244+ tests</div>
+<div class="arch-node"><span class="label">pytest Suite</span><br>257+ tests</div>
 <div class="arch-node"><span class="label">MLA Reference</span><br>Compressed latent KV attention</div>
 <div class="arch-node"><span class="label">KIVI Quant Store</span><br>Per-channel / per-token INT8</div>
 <div class="arch-node"><span class="label">RoPE Utilities</span><br>Precompute, apply, rotate</div>
@@ -322,6 +322,7 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 <div class="arch-col"><h3>GPU Kernel Path</h3>
 <div class="arch-node"><span class="label">Triton Selected-Block Attention</span><br>Iterate only over selected pages</div>
 <div class="arch-node"><span class="label">Triton Block-Range Attention</span><br>Block-starts/ends iteration</div>
+<div class="arch-node"><span class="label">Triton MLA Decode</span><br>Compressed latent GPU kernel</div>
 <div class="arch-node"><span class="label">Per-Page Dequantization</span><br>INT8 mixed-precision attention</div>
 <div class="arch-node"><span class="label">Adaptive-Format Decode</span><br>FP16/INT8/SPARSE/SKIP dispatch</div>
 <div class="arch-node"><span class="label">Paged KV Block Table</span><br>Physical page indirection</div>
@@ -517,7 +518,8 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 <div class="card"><span class="card-tag tag-blue">Block-Range Kernel</span><h4>triton_selected_block_attn.py</h4><p>Selected-block Triton kernel using block-starts/ends range iteration rather than page-table indirection. <code>_fwd_kernel_selected_block</code> accumulates online softmax across variable-length KV blocks. <code>triton_semantic_attention()</code> dispatches to GPU or CPU fallback.</p></div>
 <div class="card"><span class="card-tag tag-blue">Adaptive-Format</span><h4>triton_adaptive_format_attention.py</h4><p>Triton decode kernel with per-page storage format dispatch (FP16, INT8, SPARSE, SKIP). Each selected KV page carries a format tag; the kernel loads pages according to their format, applying INT8 dequantization as needed, with online softmax accumulation.</p></div>
 <div class="card"><span class="card-tag tag-blue">Fused Decode</span><h4>fused_selected_quant_decode.py</h4><p>Experimental Triton kernel fusing runtime semantic page selection, mixed-precision (FP16/INT8/SKIP) page loading, and decode-step attention into a single GPU kernel. Consumes <code>BlockRouter</code> metadata directly. CPU fallback via <code>fused_selected_quant_decode_reference()</code>.</p></div>
-<div class="card"><span class="card-tag tag-purple">Public API</span><h4>__init__.py</h4><p>Exports 45+ public symbols: all block metadata types, router, scorer, quantizer, prefetcher, attention functions (dense, semantic, selected-block, MLA), KV quant store, RoPE, SpecAttn, cost model, memory manager, adaptive-format, Triton kernels, and trace generators.</p></div>
+<div class="card"><span class="card-tag tag-blue">MLA Triton Decode</span><h4>triton_mla_decode.py</h4><p>GPU decode kernel for Multi-Head Latent Attention. Operates on compressed latent dimension <code>d_c</code>: takes pre-absorbed query, iterates selected latent pages via page table with online softmax, then projects through fused <code>W_VO</code>. Waits for Triton/CUDA; CPU fallback via <code>_mla_decode_cpu()</code>. Enables <strong>8× KV compression</strong> on GPU.</p></div>
+<div class="card"><span class="card-tag tag-purple">Public API</span><h4>__init__.py</h4><p>Exports 45+ public symbols: all block metadata types, router, scorer, quantizer, prefetcher, attention functions (dense, semantic, selected-block, MLA), KV quant store, RoPE, SpecAttn, cost model, memory manager, adaptive-format, Triton kernels, MLA decode kernel, and trace generators.</p></div>
 </div>
 </section>
 
@@ -706,7 +708,8 @@ python benchmarks/bench_dynamic_scoring.py
 python benchmarks/bench_intent_quant.py
 python benchmarks/bench_kv_quant.py --dry-run
 python benchmarks/bench_savings.py --dry-run
-python benchmarks/bench_specattn.py --dry-run</code></pre>
+python benchmarks/bench_specattn.py --dry-run
+python benchmarks/bench_mla_decode.py --dry-run</code></pre>
 </div>
 </section>
 

@@ -72,6 +72,11 @@ from .kv_quant import (
 )
 from .mla import MLAConfig, MLABlockTable, mla_sparse_decode_reference, absorb_weights
 from .specattn import SpecAttnController
+from .triton_mla_decode import (
+    mla_decode_triton,
+    is_triton_available as _tmd_avail,
+    is_cuda_available as _tmd_cuda,
+)
 from .triton_selected_block_attn import (
     triton_semantic_attention,
     is_triton_available as _tsb_avail,
@@ -146,6 +151,7 @@ __all__ = [
     "absorb_weights",
     "SpecAttnController",
     "triton_semantic_attention",
+    "mla_decode_triton",
     "AdaptivePageFormat",
     "AdaptiveFormatKernelConfig",
     "adaptive_format_decode_attention_triton",

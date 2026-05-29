@@ -69,3 +69,9 @@ jobs:
 
       - name: Dry-run GPU decode benchmark
         run: python experiments/gpu_decode_benchmark.py --dry-run
+
+      - name: Dry-run adaptive format benchmark
+        run: python benchmarks/bench_adaptive_format_attention.py
+
+      - name: Dry-run Triton adaptive format benchmark
+        run: python benchmarks/bench_triton_adaptive_format_attention.py --dry-run

@@ -90,7 +90,7 @@ Kernel Metadata
 Selected / IntentQuant / Adaptive Format Attention Path (CPU reference)
      |
      v
-Future Triton/CUDA Kernel (optional prototype exists)
+Future Triton/CUDA Kernel (optional prototype exists for adaptive-format)
 ```
 
 ### Adaptive Format KV Attention
@@ -116,12 +116,12 @@ Future Triton/CUDA Kernel (optional prototype exists)
 | GPU decode benchmark harness | `experiments/gpu_decode_benchmark.py` | Functional |
 | End-to-end router demo | `examples/end_to_end_router_demo.py` | Stable |
 | Adaptive Format KV Attention Reference (CPU) | `src/.../adaptive_format_attention.py` | Stable |
+| Triton Adaptive-Format Decode Attention Kernel (GPU prototype) | `src/.../triton_adaptive_format_attention.py` | Optional |
 
 ### Tests
 
-- 146 unit and integration tests (pytest)
-- All pass on CPU with no CUDA or Triton required
-- 3 tests skipped when Triton is not available
+- 160+ unit and integration tests (pytest) (Triton tests skip without GPU)
+- All CPU tests pass with no CUDA or Triton required
 
 ---
 

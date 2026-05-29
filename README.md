@@ -182,9 +182,25 @@ python benchmarks/bench_fused_selected_quant_decode.py \
 
 The Adaptive Format KV Attention reference models KV cache pages stored in different physical formats, such as dense FP16 pages, INT8 quantized pages, and sparse pages.
 
-This extends the repo’s intent-aware KV execution model beyond page selection and precision tags. The runtime can now reason about the actual representation of each KV page and dispatch the attention path accordingly.
+This extends the repo's intent-aware KV execution model beyond page selection and precision tags. The runtime can now reason about the actual representation of each KV page and dispatch the attention path accordingly.
 
 This is a CPU/reference implementation only. It does not claim GPU speedup or production-ready format dispatch.
+
+### 11. Triton Adaptive-Format Decode Attention Kernel
+
+An optional Triton kernel (`triton_adaptive_format_attention.py`) extending per-page format dispatch to GPU decode attention. Each selected KV page is tagged with a storage format (FP16, INT8, SPARSE, or SKIP). The kernel loads pages according to their format tag, applying INT8 dequantization as needed, and accumulates attention with online softmax.
+
+The SPARSE Triton path is interface-first (CPU fallback). The kernel is a research prototype — **no GPU speedup is claimed**.
+
+```bash
+# Dry-run (validate imports, no GPU required)
+python benchmarks/bench_triton_adaptive_format_attention.py --dry-run
+
+# Full benchmark on GPU (requires Triton + CUDA)
+python benchmarks/bench_triton_adaptive_format_attention.py
+```
+
+Related: `docs/triton_adaptive_format_attention.md`
 
 ---
 
@@ -353,6 +369,9 @@ python benchmarks/bench_intent_quant_attention.py
 # Run adaptive format KV attention reference benchmark
 python benchmarks/bench_adaptive_format_attention.py
 
+# Run optional Triton adaptive format decode attention benchmark (requires GPU + Triton)
+python benchmarks/bench_triton_adaptive_format_attention.py
+
 # Run optional Triton IntentQuant decode attention benchmark (requires GPU + Triton)
 python benchmarks/bench_triton_intent_quant_attention.py
 
@@ -471,6 +490,12 @@ KV pages with per-page precision (FP16 or INT8). Skips cleanly on systems
 without Triton or CUDA. No GPU speedup is claimed — this is a first kernel
 prototype for hardware experimentation.
 
+### bench_triton_adaptive_format_attention.py
+
+Optional Triton prototype for adaptive-format decode attention over KV pages with
+per-page storage format tags (FP16, INT8, SPARSE, SKIP). Supports dry-run mode
+for CI validation without GPU hardware. No GPU speedup is claimed.
+
 ### bench_block_router.py
 
 CPU routing and cost-model benchmark for the KV Block Router. Generates
@@ -566,6 +591,7 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] Validation plan docs (docs/validation_plan.md)
 - [x] GPU benchmarking guide (docs/gpu_benchmarking.md)
 - [x] Adaptive Format KV Attention Reference — CPU reference for heterogeneous KV page formats (FP16, INT8, sparse)
+- [x] Triton Adaptive-Format Decode Attention Kernel — optional GPU decode with per-page FP16/INT8/SPARSE/SKIP dispatch
 
 ---
 
@@ -671,7 +697,8 @@ python -m ruff check src tests benchmarks
 
 - [x] **KV Block Router** — runtime-to-kernel policy layer (CPU)
 - [x] **Triton IntentQuant decode kernel** — selected-page decode with per-page precision (FP16/INT8)
-- [ ] **Triton kernel** — iterate only over physical pages from block table (general)
+- [x] **Adaptive Format KV Attention Reference** — CPU reference for heterogeneous KV page formats
+- [x] **Triton Adaptive-Format Decode Kernel** — GPU decode with per-page FP16/INT8/SPARSE/SKIP dispatch
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping
 - [ ] **Variable block sizes** — support non-uniform page sizes
 - [ ] **Integration with HuggingFace / vLLM** — plug into real inference

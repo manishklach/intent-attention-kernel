@@ -114,6 +114,23 @@ def mla_decode_triton(
     page_table: torch.Tensor,
     page_size: int = 64,
 ) -> torch.Tensor:
+    """MLA decode over page-table selected latent pages.
+
+    Args:
+        q_absorb: Pre-absorbed query [batch, q_len, d_c].
+        C: Concatenated latent vectors [total_tokens, d_c].
+        W_VO_fused: Absorbed output weights [d_c, d_out].
+        page_table: Selected page IDs [n_selected], int32.
+        page_size: Tokens per latent page.
+
+    Returns:
+        Output tensor [batch, q_len, d_out] with same dtype/device as
+        q_absorb. Returns zeros when page_table is empty (no NaN).
+
+    The GPU kernel (Triton) is used only when both Triton and CUDA are
+    available. Otherwise falls back to _mla_decode_cpu. No GPU speedup is
+    claimed — the kernel is a research prototype for hardware experimentation.
+    """
     batch, q_len, d_c = q_absorb.shape
     d_out = W_VO_fused.shape[1]
     n_selected = page_table.shape[0]

@@ -310,10 +310,14 @@ A GPU decode kernel for Multi-Head Latent Attention operating in the compressed 
 
 This enables the ~8× KV compression benefit of MLA (at DeepSeek scale) on GPU. The `mla_triton_decode()` entry point in `mla.py` handles the end-to-end pipeline: query projection, block selection, latent gathering, and kernel dispatch.
 
+**No GPU speedup is claimed.** The kernel is a research prototype with CPU fallback for CI and CPU-only development.
+
 ```bash
 # Dry-run (no GPU required)
 python benchmarks/bench_mla_decode.py --dry-run
 ```
+
+Related: `docs/triton_mla_decode.md`
 
 ---
 
@@ -792,7 +796,7 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] block-level scoring functions (score_blocks, score_layout)
 - [x] Causal selected-block attention with position-aware masking
 - [x] MLA Triton decode kernel (compressed latent attention on GPU with CPU fallback)
-- [x] pytest coverage (257 tests)
+- [x] pytest coverage (260 tests)
 
 ---
 
@@ -800,6 +804,7 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 
 - No GPU speedups are claimed.
 - No production-ready Triton/CUDA kernel is claimed.
+- The MLA Triton decode kernel is a research prototype with CPU fallback — no real GPU latency or throughput measurement has been performed.
 - No real NVIDIA hardware validation has been performed.
 - Quantization has not been validated for model accuracy or perplexity.
 - No superiority over KIVI, KVQuant, or TurboQuant is claimed.
@@ -854,6 +859,7 @@ intent-attention-kernel/
             gpu_kernel_plan.md        Future GPU mapping
             intent_quant.md           Intent-aware mixed-precision KV quantization
             kv_quantization.md        KV quantization modeling
+            triton_mla_decode.md      MLA Triton decode kernel design
             prefetch.md               Speculative prefetch simulation
             repo_metadata.md          Suggestions for GitHub settings
             results_cpu.md            Detailed CPU results notes
@@ -887,7 +893,7 @@ intent-attention-kernel/
         triton_selected_block_attn.py  Selected-block range Triton kernel
         triton_mla_decode.py      MLA compressed latent attention Triton kernel
         vllm_bridge.py            vLLM-style paged-attention bridge
-    tests/                        Test suite (244 tests)
+    tests/                        Test suite (260 tests)
     CHANGELOG.md
     README.md
     pyproject.toml

@@ -1,4 +1,7 @@
-"""Benchmark: MLA Triton decode kernel throughput."""
+"""Benchmark: MLA Triton decode kernel throughput.
+
+CPU-only research prototype. No GPU speedup is claimed.
+"""
 from __future__ import annotations
 
 import math
@@ -9,6 +12,7 @@ import torch
 
 from intent_attention.mla import MLAConfig, MLABlockTable, mla_triton_decode
 from intent_attention.block_metadata import BlockLayout, SemanticBlock, BlockPolicy
+from intent_attention.triton_mla_decode import is_triton_available, is_cuda_available
 
 
 def bench_mla_decode(batch=2, n_heads=8, d_head=64, d_c=256, d_model=512,
@@ -27,7 +31,7 @@ def bench_mla_decode(batch=2, n_heads=8, d_head=64, d_c=256, d_model=512,
     layout = BlockLayout(blocks)
 
     if dry_run:
-        print(f"[dry-run] MLA decode: {batch=}, {n_heads=}, {d_c=}, "
+        print(f"  [dry-run] MLA decode: {batch=}, {n_heads=}, {d_c=}, "
               f"{n_blocks=} blocks, {page_size=}")
         return
 
@@ -40,6 +44,12 @@ def bench_mla_decode(batch=2, n_heads=8, d_head=64, d_c=256, d_model=512,
 
 def bench_mla_main(dry_run=False):
     print("=== MLA Triton Decode Benchmark ===")
+    print(f"  Triton available: {is_triton_available()}")
+    print(f"  CUDA available:   {is_cuda_available()}")
+    if not dry_run:
+        print("  (CPU path — no GPU speedup claimed)")
+    print()
+
     configs = [
         {"n_blocks": 8, "d_c": 128, "page_size": 32},
         {"n_blocks": 16, "d_c": 256, "page_size": 64},

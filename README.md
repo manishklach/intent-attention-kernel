@@ -214,6 +214,92 @@ python examples/cpu_adaptive_kv_runtime_demo.py
 
 Related: `docs/kv_memory_manager.md`
 
+### 13. RoPE Rotary Position Embedding Utilities
+
+`rope.py` provides modular RoPE precomputation and application compatible with PyTorch. Handles automatic half-dim duplication, position-id indexing, and norm-preserving rotation. A future Triton-kernel path is stubbed.
+
+```python
+from intent_attention.rope import precompute_rope_freqs, apply_rope
+
+cos, sin = precompute_rope_freqs(seq_len=4096, d_head=128)
+x_rope = apply_rope(x, cos, sin, position_ids=position_ids)
+```
+
+**No GPU speedup is claimed.** This is a utility module.
+
+### 14. KIVI-Style INT8 KV Quantisation (`kv_quant.py`)
+
+A modular KIVI-style asymmetric INT8 quantisation implementation with:
+- **Per-channel K quantisation** with configurable group size (default 128)
+- **Per-token V quantisation** with per-row scaling
+- **FP16 residual window** (`residual_r=128`) to bound cumulative error
+- **`KVQuantStore`** — page-level storage with block-id indexing, dequantisation, and SNR diagnostics
+
+This is complementary to the existing per-page IntentQuant policy simulator: KIVI-style quant is a specific storage scheme, while IntentQuant is a policy layer that decides *when* to apply it.
+
+```python
+from intent_attention.kv_quant import KVQuantStore
+
+store = KVQuantStore(page_size=64)
+store.append_page(block_id=0, k_fp16=k_page, v_fp16=v_page)
+k_deq, v_deq = store.get_block_kv(0)
+mem = store.memory_bytes()
+```
+
+### 15. Multi-Head Latent Attention — MLA Block Table (`mla.py`)
+
+Implements the compressed-KV attention mechanism used in DeepSeek-V2/V3:
+- **Latent KV joint compression** — projects Q and K into a shared low-dimensional space (`d_c`)
+- **`MLABlockTable`** — stores per-block compressed latent vectors (and optional RoPE side-vectors)
+- **`mla_sparse_decode_reference`** — CPU reference for MLA decode over selected latent blocks
+- **Absorbed weight fusion** — `absorb_weights()` fuses `W_UQ`/`W_UK` and `W_UV`/`W_O` into a single matmul each
+
+At DeepSeek scale (d_c=512 vs n_heads×d_head=4096), MLA provides ~8× KV cache compression. This module is a standalone reference — no GPU speedup is claimed.
+
+```python
+from intent_attention.mla import MLAConfig, MLABlockTable, absorb_weights
+
+cfg = MLAConfig(d_model=4096, d_c=512, n_heads=32, d_head=128)
+table = MLABlockTable(cfg)
+table.append(0, c_latent)  # shape [page_size, d_c]
+out, debug = mla_sparse_decode_reference(q, table, W_QK, W_VO, layout)
+```
+
+### 16. SpecAttn — Verification-Guided Block Selection (`specattn.py`)
+
+`SpecAttnController` implements the feedback loop from the Spec-Attention paper: after each decode step, attention weights are used to update per-block importance scores (EMA), and the `top_k` scoring ATTEND blocks are retained while low-scorer blocks are demoted to SKIP.
+
+Includes:
+- **EMA-based importance tracking** — smoothed per-block scores from verification
+- **top-k selection** — keep only the most attended blocks for the next step
+- **Speculative rejection sampling** — `speculative_accept()` implements draft-verification token acceptance with optional importance sampling for rejected tokens
+- **Statistics** — mean acceptance rate, per-block importance scores, controller state
+
+```python
+from intent_attention.specattn import SpecAttnController
+
+ctrl = SpecAttnController(top_k_blocks=8, k_draft=4)
+layout = ctrl.init_layout(layout)
+layout = ctrl.update_from_verification(attn_weights, layout)
+accepted = ctrl.speculative_accept(draft_tokens, verify_logits)
+```
+
+### 17. Selected-Block Attention Triton Kernel (`triton_selected_block_attn.py`)
+
+A real selected-block Triton kernel (`_fwd_kernel_selected_block`) that iterates over variable-length KV blocks defined by `block_starts`/`block_ends` arrays. Supports online softmax accumulation across blocks. The public entry point `triton_semantic_attention()` dispatches to GPU or CPU fallback.
+
+This is a **different architecture** from the existing page-table-based kernel in `triton_kernel.py` — it operates on contiguous block ranges rather than paged memory layouts.
+
+```bash
+python -c "from intent_attention import triton_semantic_attention; help(triton_semantic_attention)"
+```
+
+**No GPU speedup is claimed.** The kernel is a research prototype with CPU fallback for CI and CPU-only development.
+
+### 18. `selected_block_attention` — Block-Range Dispatch
+
+`reference.py` now exports `selected_block_attention(q, k, v, block_starts, block_ends, ...)` which dispatches to the Triton kernel (if GPU available) or a CPU block-loop fallback. `dense_attention` now also accepts an optional `mask` parameter for external attention masks.
+
 ---
 
 ## IntentQuant-KV
@@ -307,26 +393,75 @@ The router is the policy layer. The kernel is the execution layer.
 Agentic runtime
     |
     v
-KV Block Router (policy layer)
+KV Block Router (policy layer) ──────────────────────────────────────────
+    |                                                                     |
+    +--> semantic policy (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL)           |
+    +--> dynamic block score (BlockScorer / score_blocks / score_layout)  |
+    +--> recency window                                                   |
+    +--> memory pressure                                                  |
+    +--> optional query-to-block similarity                               |
+    |                                                                     |
+    v                                                                     |
+Kernel metadata ─────────────────────────────────────────────────────────┘
     |
-    +--> semantic policy (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL)
-    +--> dynamic block score
-    +--> recency window
-    +--> memory pressure
-    +--> optional query-to-block similarity
-    |
-    v
-Kernel metadata
-    |
-    +--> selected pages
-    +--> precision by page
-    +--> prefetch hints
-    |
-    v
-IntentQuant / selected-block attention kernels
-    |
-    v
-Future Triton/CUDA kernel path
+    +--> selected pages       +--> per-page precision  +--> prefetch hints
+    |                         |                         |
+    v                         v                         v
+Selected-block attention   INT8 Quant attention      SpecAttn EMA
+  (CPU / Triton)              (KIVI-style)             (feedback loop)
+    |                         |                         |
+    +-------------------------+-------------------------+
+                              |
+                              v
+            MLA Latent Attention (compressed KV)
+            RoPE precompute/apply
+            Adaptive-format decode (FP16/INT8/SPARSE)
+            KVMemoryManager (format tracking, demotion/promotion)
+                              |
+                              v
+                  Future CUDA kernel path
+```
+
+---
+
+## Module Dependency Diagram
+
+```text
+                    +---> block_metadata.py  (BlockPolicy, SemanticBlock, BlockLayout)
+                    |         |
+                    |         v
+                    |    reference.py  (dense_attention, semantic_block_attention, selected_block_attention)
+                    |         |
+                    |         +---> block_scorer.py  (BlockScorer, score_blocks, score_layout)
+                    |         |
+                    |         v
+                    |    triton_kernel.py  (semantic_block_attention_triton, _fwd_kernel, _fwd_kernel_quant)
+                    |         |
+                    |         +---> triton_selected_block_attn.py  (triton_semantic_attention, _fwd_kernel_selected_block)
+                    |         |
+    cost_model.py <---+-------+---> kv_memory_manager.py  (KVMemoryManager, PageStorageFormat)
+                    |         |         |
+                    |         |         v
+                    |         |    triton_adaptive_format_attention.py  (adaptive_format_decode_attention_triton)
+                    |         |
+                    |         v
+                    |    fused_selected_quant_decode.py  (FusedDecodeConfig, fused_selected_quant_decode)
+                    |
+    block_router.py  ---> intent_quant.py  (IntentQuantizer, QuantPolicy)
+                    |
+                    v
+    mla.py  (MLABlockTable, mla_sparse_decode_reference)
+    kv_quant.py  (KVQuantStore, quantise_k_perchannel, quantise_v_pertoken)
+    rope.py  (precompute_rope_freqs, apply_rope)
+    specattn.py  (SpecAttnController)
+    prefetch.py  (BlockPrefetcher)
+    synthetic_traces.py  (generate_agentic_layout, random_layout)
+    block_table.py  (BlockTable)
+                    |
+                    v
+                __init__.py  (all public exports)
+
+Green = CPU reference    Blue = Triton/GPU optional    Yellow = Storage/Quant
 ```
 
 ---
@@ -395,6 +530,11 @@ python examples/end_to_end_router_demo.py
 
 # Run CPU Adaptive KV Runtime demo
 python examples/cpu_adaptive_kv_runtime_demo.py
+
+# Run new benchmarks (dry-run safe)
+python benchmarks/bench_kv_quant.py --dry-run
+python benchmarks/bench_savings.py --dry-run
+python benchmarks/bench_specattn.py --dry-run
 
 # Dry-run LLM quality validation (validates imports only, no model download)
 python experiments/llm_quality_validation.py --dry-run
@@ -472,8 +612,28 @@ Measures PyTorch overhead at small token counts on CPU only.
 
 ### bench_kv_quant.py
 
-KV byte savings model for selected INT8-style KV pages. Compares fp16
-dense storage vs int8+scale for selected pages. Purely analytical.
+KV quant roundtrip speed benchmark. Measures quantise/dequantise
+throughput for per-channel K and per-token V INT8 quantisation across
+configurable page sizes and page counts. Supports --dry-run for CI.
+
+### bench_kv_memory_manager.py
+
+KVMemoryManager benchmark across four configuration tiers (default,
+aggressive demotion, prefetch warmup, self-tuning). Validates page format
+transitions, access-tracking, and tuning adaptation. Supports --dry-run.
+
+### bench_savings.py
+
+Estimated savings from block sparsity + quantisation at varying sparsity
+levels (6.25% to dense) and quantisation percentages. Uses the analytical
+cost model to report GFLOPs, GB read, and estimated speedup vs dense.
+
+### bench_specattn.py
+
+SpecAttn controller end-to-end throughput benchmark. Simulates
+verification-based block selection over multiple decode steps with
+configurable block counts. Reports per-step update/accept latency and
+mean acceptance rate. Supports --dry-run.
 
 ### bench_prefetch.py
 
@@ -608,6 +768,14 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] Adaptive Format KV Attention Reference — CPU reference for heterogeneous KV page formats (FP16, INT8, sparse)
 - [x] Triton Adaptive-Format Decode Attention Kernel — optional GPU decode with per-page FP16/INT8/SPARSE/SKIP dispatch
 - [x] CPU Adaptive KV Runtime (KVMemoryManager) — orchestrator for format assignment, access tracking, demotion/promotion, and decode
+- [x] RoPE Rotary Position Embedding utilities (precompute, apply, rotate_half)
+- [x] KIVI-style INT8 KV quantisation (per-channel K, per-token V, FP16 residual window)
+- [x] Multi-Head Latent Attention (MLA) block table and sparse decode reference
+- [x] SpecAttn verification-guided block selection controller (EMA, top-k, speculative accept)
+- [x] Selected-block attention Triton kernel (block-range iteration, CPU fallback)
+- [x] selected_block_attention dispatch (GPU Triton → CPU block-loop)
+- [x] block-level scoring functions (score_blocks, score_layout)
+- [x] pytest coverage (244 tests)
 
 ---
 
@@ -652,8 +820,11 @@ intent-attention-kernel/
         bench_intent_quant.py     Intent-aware mixed-precision KV quantization
         bench_intent_quant_attention.py  Per-block quantized attention reference
         bench_triton_intent_quant_attention.py  Optional Triton decode attention
-        bench_kv_quant.py         KV cache quantisation memory analysis
+        bench_kv_quant.py         KV cache quantisation roundtrip speed
+        bench_kv_memory_manager.py  KVMemoryManager self-tuning & demotion benchmark
         bench_prefetch.py         Speculative prefetch decode simulation
+        bench_savings.py          Estimated savings from block sparsity + quant
+        bench_specattn.py         SpecAttn controller end-to-end throughput
         docs/
             architecture.md           Module design
             attention_layout.md       Block policies
@@ -675,21 +846,27 @@ intent-attention-kernel/
         _enum.py                  StrEnum base
         block_metadata.py         BlockPolicy, SemanticBlock, BlockLayout
         block_router.py           KV Block Router (policy layer)
-        block_scorer.py           Dynamic block scoring (cosine similarity)
+        block_scorer.py           Dynamic block scoring + score_blocks / score_layout
         block_table.py            Paged KV mapping simulation
         cost_model.py             Analytical FLOP/KV-byte model
         hf_patch.py               HuggingFace Transformers integration
         intent_quant.py           Intent-aware mixed-precision KV quantization
         intent_quant_attention.py Per-block quantized attention reference
-        kv_quant.py               INT8 KV cache quantisation
-        triton_intent_quant_attention.py Optional Triton IntentQuant decode attention
+        kv_quant.py               KIVI-style INT8 KV cache quantisation
+        kv_memory_manager.py      CPU Adaptive KV Runtime (format tracking, demotion/promotion)
+        mla.py                    Multi-Head Latent Attention (MLA block table + sparse decode)
         prefetch.py               Speculative KV block prefetching
-        reference.py              Dense + selected-block attention
+        reference.py              Dense + selected-block + block-range attention
+        rope.py                   RoPE precomputation and application
+        specattn.py               SpecAttn verification-guided block selection controller
         synthetic_traces.py       Layout generators
         triton_kernel.py          Triton GPU kernel with CPU fallback
         triton_kernel_quant.py    INT8 quantised Triton kernel
+        triton_adaptive_format_attention.py Triton adaptive-format decode kernel
+        triton_intent_quant_attention.py Optional Triton IntentQuant decode attention
+        triton_selected_block_attn.py  Selected-block range Triton kernel
         vllm_bridge.py            vLLM-style paged-attention bridge
-    tests/                        Test suite
+    tests/                        Test suite (244 tests)
     CHANGELOG.md
     README.md
     pyproject.toml
@@ -716,12 +893,19 @@ python -m ruff check src tests benchmarks
 - [x] **Adaptive Format KV Attention Reference** — CPU reference for heterogeneous KV page formats
 - [x] **Triton Adaptive-Format Decode Kernel** — GPU decode with per-page FP16/INT8/SPARSE/SKIP dispatch
 - [x] **CPU Adaptive KV Runtime** — smart KV cache memory manager with format tracking and demotion/promotion
+- [x] **RoPE utilities** — modular precompute/apply (CPU)
+- [x] **KIVI-style INT8 KV quantisation** — per-channel K, per-token V, residual window
+- [x] **MLA block table** — compressed latent KV attention reference
+- [x] **SpecAttn controller** — verification-guided block selection with EMA tracking
+- [x] **Selected-block Triton kernel** — block-range iteration with CPU fallback
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping
 - [ ] **Variable block sizes** — support non-uniform page sizes
 - [ ] **Integration with HuggingFace / vLLM** — plug into real inference
       engines
 - [ ] **Trained routing** — replace heuristic scoring with learned block
       selection
+- [ ] **MLA Triton kernel** — GPU decode for compressed latent attention
+- [ ] **SpecAttn end-to-end on GPU** — real draft-verify loop with block selection
 
 ---
 

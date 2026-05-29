@@ -7,7 +7,7 @@ from .block_router import (
     compute_block_scores,
     routing_to_kernel_metadata,
 )
-from .block_scorer import BlockScorer
+from .block_scorer import BlockScorer, score_blocks, score_layout
 from .block_table import BlockTable
 from .cost_model import (
     attention_flops,
@@ -64,11 +64,25 @@ from .triton_adaptive_format_attention import (
     adaptive_format_decode_attention_triton,
     make_adaptive_page_tables,
 )
+from .rope import precompute_rope_freqs, apply_rope, rotate_half
+from .kv_quant import (
+    quantise_k_perchannel, dequantise_k,
+    quantise_v_pertoken, dequantise_v,
+    KVQuantStore, QuantisedPage,
+)
+from .mla import MLAConfig, MLABlockTable, mla_sparse_decode_reference, absorb_weights
+from .specattn import SpecAttnController
+from .triton_selected_block_attn import (
+    triton_semantic_attention,
+    is_triton_available as _tsb_avail,
+    is_cuda_available as _tsb_cuda,
+)
 from .triton_kernel import (
     is_triton_available,
     is_cuda_available,
     semantic_block_attention_triton,
 )
+from .reference import selected_block_attention
 
 __all__ = [
     "intent_quant_attention_reference",
@@ -83,6 +97,8 @@ __all__ = [
     "SemanticBlock",
     "BlockLayout",
     "BlockScorer",
+    "score_blocks",
+    "score_layout",
     "BlockTable",
     "BlockPrefetcher",
     "KVPrecision",
@@ -93,6 +109,7 @@ __all__ = [
     "compute_quant_error",
     "dense_attention",
     "semantic_block_attention",
+    "selected_block_attention",
     "attention_flops",
     "kv_read_bytes",
     "semantic_attention_cost",
@@ -114,6 +131,21 @@ __all__ = [
     "fused_selected_quant_decode",
     "fused_selected_quant_decode_reference",
     "metadata_to_kernel_tensors",
+    "precompute_rope_freqs",
+    "apply_rope",
+    "rotate_half",
+    "quantise_k_perchannel",
+    "dequantise_k",
+    "quantise_v_pertoken",
+    "dequantise_v",
+    "KVQuantStore",
+    "QuantisedPage",
+    "MLAConfig",
+    "MLABlockTable",
+    "mla_sparse_decode_reference",
+    "absorb_weights",
+    "SpecAttnController",
+    "triton_semantic_attention",
     "AdaptivePageFormat",
     "AdaptiveFormatKernelConfig",
     "adaptive_format_decode_attention_triton",

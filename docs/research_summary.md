@@ -107,7 +107,7 @@ Future Triton/CUDA Kernel (optional prototype exists for adaptive-format)
 | `SemanticBlock` / `BlockLayout` | `src/.../block_metadata.py` | Stable |
 | `BlockPolicy` (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL) | `src/.../block_metadata.py` | Stable |
 | `BlockRouter` (runtime-to-kernel policy layer) | `src/.../block_router.py` | Stable |
-| `BlockScorer` (cosine-similarity scoring) | `src/.../block_scorer.py` | Prototype |
+| `BlockScorer` / `score_blocks` / `score_layout` | `src/.../block_scorer.py` | Stable |
 | `IntentQuantizer` (per-block precision assignment) | `src/.../intent_quant.py` | Stable |
 | `intent_quant_attention_reference` (CPU) | `src/.../intent_quant_attention.py` | Stable |
 | `intent_quant_decode_attention_triton` (GPU prototype) | `src/.../triton_intent_quant_attention.py` | Optional |
@@ -119,10 +119,16 @@ Future Triton/CUDA Kernel (optional prototype exists for adaptive-format)
 | Adaptive Format KV Attention Reference (CPU) | `src/.../adaptive_format_attention.py` | Stable |
 | Triton Adaptive-Format Decode Attention Kernel (GPU prototype) | `src/.../triton_adaptive_format_attention.py` | Optional |
 | CPU Adaptive KV Runtime (KVMemoryManager) | `src/.../kv_memory_manager.py` | Stable |
+| RoPE precompute / apply / rotate_half | `src/.../rope.py` | Stable |
+| KIVI-style INT8 KV quantisation (KVQuantStore) | `src/.../kv_quant.py` | Stable |
+| Multi-Head Latent Attention (MLABlockTable) | `src/.../mla.py` | Stable |
+| SpecAttn verification-guided selection | `src/.../specattn.py` | Stable |
+| Selected-block range Triton kernel | `src/.../triton_selected_block_attn.py` | Prototype |
+| `selected_block_attention` dispatch | `src/.../reference.py` | Stable |
 
 ### Tests
 
-- 200+ unit and integration tests (pytest) (Triton tests skip without GPU)
+- 244+ unit and integration tests (pytest) (Triton tests skip without GPU)
 - All CPU tests pass with no CUDA or Triton required
 
 ---
@@ -188,3 +194,9 @@ We are honest about what has and has not been measured:
 
 6. **Comparison against baselines** — measure perplexity and GPU throughput
    against KIVI, KVQuant, and dense attention on equivalent hardware.
+
+7. **MLA Triton kernel** — GPU decode for compressed latent attention with absorbed weight fusion.
+
+8. **SpecAttn end-to-end on GPU** — real draft-verify loop with block selection on GPU hardware.
+
+9. **Trained routing** — replace heuristic block scoring with learned block selection.

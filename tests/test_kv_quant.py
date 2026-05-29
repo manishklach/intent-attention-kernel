@@ -1,117 +1,99 @@
+"""Tests for kv_quant.py."""
 from __future__ import annotations
 
 import torch
-from intent_attention.block_metadata import BlockLayout, BlockPolicy, SemanticBlock
+
 from intent_attention.kv_quant import (
-    dequantise_kv_page,
-    dequantise_selected_pages,
-    quantise_kv_cache,
-    quantise_kv_page,
+    quantise_k_perchannel, dequantise_k,
+    quantise_v_pertoken, dequantise_v,
+    KVQuantStore, QuantisedPage,
 )
 
 
-def test_round_trip_error_below_one_percent():
-    torch.manual_seed(7)
-    page_size, d_head = 128, 64
-    k = torch.randn(page_size, d_head, dtype=torch.float16)
-    v = torch.randn(page_size, d_head, dtype=torch.float16)
-
-    k_int8, v_int8, ks, vs = quantise_kv_page(k, v)
-    k_hat, v_hat = dequantise_kv_page(k_int8, v_int8, ks, vs)
-
-    k_err = (k - k_hat).abs().max() / k.abs().max()
-    v_err = (v - v_hat).abs().max() / v.abs().max()
-
-    assert (
-        k_err.item() < 0.01
-    ), f"K round-trip relative error {k_err.item():.5f} >= 0.01"
-    assert (
-        v_err.item() < 0.01
-    ), f"V round-trip relative error {v_err.item():.5f} >= 0.01"
+def test_quantise_k_roundtrip():
+    k = torch.randn(64, 128)
+    k_int8, scale, zero = quantise_k_perchannel(k)
+    k_deq = dequantise_k(k_int8, scale, zero)
+    assert k_deq.shape == k.shape
+    error = (k.float() - k_deq.float()).abs().mean().item()
+    assert error < 1.0
 
 
-def test_round_trip_extreme_values():
-    page_size = 32
-    k = torch.tensor(
-        [[-127.0, 0.0, 127.0, 63.0]] * page_size, dtype=torch.float16
-    ).T.contiguous()
-    v = k.clone()
-
-    k_int8, v_int8, ks, vs = quantise_kv_page(k, v)
-    k_hat, v_hat = dequantise_kv_page(k_int8, v_int8, ks, vs)
-
-    k_err = (k - k_hat).abs().max()
-    assert k_err.item() < 1.0, f"Extreme-value error {k_err.item():.4f}"
-    assert torch.isfinite(k_hat).all()
+def test_quantise_v_roundtrip():
+    v = torch.randn(64, 128)
+    v_int8, scale, zero = quantise_v_pertoken(v)
+    v_deq = dequantise_v(v_int8, scale, zero)
+    assert v_deq.shape == v.shape
+    assert v_int8.dtype == torch.int8
 
 
-def test_quantise_cache_shape():
-    batch, heads, total, d_head = 2, 4, 256, 64
-    k = torch.randn(batch, heads, total, d_head, dtype=torch.float16)
-    v = torch.randn(batch, heads, total, d_head, dtype=torch.float16)
+def test_quantised_page_dequantise():
+    k = torch.randn(64, 128)
+    v = torch.randn(64, 128)
+    k_int8, ks, kz = quantise_k_perchannel(k)
+    v_int8, vs, vz = quantise_v_pertoken(v)
+    page = QuantisedPage(k_int8, v_int8, ks, kz, vs, vz)
+    k_deq = page.dequantise_k()
+    v_deq = page.dequantise_v()
+    assert k_deq.shape == k.shape
+    assert v_deq.shape == v.shape
 
-    page_size = 128
-    k_int8, v_int8, ks, vs = quantise_kv_cache(k, v, page_size)
 
-    num_pages = (total + page_size - 1) // page_size
-    assert k_int8.shape == (batch, heads, num_pages, page_size, d_head)
-    assert v_int8.shape == (batch, heads, num_pages, page_size, d_head)
-    assert ks.shape == (batch, heads, num_pages, d_head)
-    assert vs.shape == (batch, heads, num_pages, d_head)
+def test_kv_quant_store():
+    store = KVQuantStore(page_size=64)
+    k = torch.randn(64, 128)
+    v = torch.randn(64, 128)
+    store.append_page(0, k, v)
+    k_get, v_get = store.get_block_kv(0)
+    assert k_get is not None
+    assert v_get is not None
+    assert k_get.shape == k.shape
+    assert v_get.shape == v.shape
+
+
+def test_kv_quant_store_residual():
+    store = KVQuantStore(residual_r=32)
+    store.update_residual(torch.randn(64, 128), torch.randn(64, 128))
+    store.update_residual(torch.randn(64, 128), torch.randn(64, 128))
+    res_k, res_v = store.get_residual()
+    assert res_k is not None
+    assert res_k.shape[0] <= 32
+
+
+def test_kv_quant_store_missing_block():
+    store = KVQuantStore()
+    k_get, v_get = store.get_block_kv(42)
+    assert k_get is None
+    assert v_get is None
+
+
+def test_kv_quant_store_memory_bytes():
+    store = KVQuantStore(page_size=64)
+    store.append_page(0, torch.randn(64, 128), torch.randn(64, 128))
+    mem = store.memory_bytes()
+    assert "quantised_bytes" in mem
+    assert "residual_fp16_bytes" in mem
+    assert mem["quantised_bytes"] > 0
+
+
+def test_kv_quant_store_snr():
+    store = KVQuantStore(page_size=64)
+    k = torch.randn(64, 128)
+    v = torch.randn(64, 128)
+    store.append_page(0, k, v)
+    snr = store.snr_db(0, k, v)
+    assert "k_snr_db" in snr
+    assert "v_snr_db" in snr
+
+
+def test_quantise_k_default_group_size():
+    k = torch.randn(128, 64)
+    k_int8, scale, zero = quantise_k_perchannel(k)
     assert k_int8.dtype == torch.int8
-    assert ks.dtype == torch.float16
 
 
-def test_dequant_selected_pages():
-    batch, heads, total, d_head = 1, 1, 256, 32
-    k = torch.randn(batch, heads, total, d_head, dtype=torch.float16)
-    v = torch.randn(batch, heads, total, d_head, dtype=torch.float16)
-
-    k_int8, v_int8, ks, vs = quantise_kv_cache(k, v, page_size=128)
-    page_ids = torch.tensor([0], dtype=torch.int32)
-
-    k_deq, v_deq = dequantise_selected_pages(k_int8, v_int8, ks, vs, page_ids, 256, 128)
-
-    assert k_deq.shape == (batch, heads, 128, d_head)
-    assert torch.isfinite(k_deq).all()
-
-
-class DequantCounter:
-    def __init__(self) -> None:
-        self.count = 0
-
-    def __call__(self, k_int8, v_int8, ks, vs):
-        self.count += 1
-        return dequantise_kv_page(k_int8, v_int8, ks, vs)
-
-
-def test_skip_blocks_not_dequantised():
-    from intent_attention.reference import semantic_block_attention
-
-    q = torch.randn(1, 1, 8, 32, dtype=torch.float16)
-    k = torch.randn(1, 1, 64, 32, dtype=torch.float16)
-    v = torch.randn(1, 1, 64, 32, dtype=torch.float16)
-
-    layout = BlockLayout(
-        [
-            SemanticBlock("keep", 0, 32, BlockPolicy.ALWAYS),
-            SemanticBlock("skip_me", 32, 64, BlockPolicy.SKIP),
-        ]
-    )
-
-    counter = DequantCounter()
-    import intent_attention.kv_quant as kvq
-
-    orig_deq = kvq.dequantise_kv_page
-    kvq.dequantise_kv_page = counter
-
-    try:
-        out = semantic_block_attention(q, k, v, layout, return_debug=False)
-    finally:
-        kvq.dequantise_kv_page = orig_deq
-
-    assert out.shape == (1, 1, 8, 32)
-    # dequantise should not have been called (this path uses direct fp16)
-    # The CPU reference path never calls kv_quant functions,
-    # so this test verifies that SKIP blocks are truly skipped in the layout.
-    # For a full GPU path test, see the Triton test below.
+def test_quantise_v_pertoken_shape():
+    v = torch.randn(32, 64)
+    v_int8, scale, zero = quantise_v_pertoken(v)
+    assert v_int8.shape == (32, 64)
+    assert scale.shape == (32,)

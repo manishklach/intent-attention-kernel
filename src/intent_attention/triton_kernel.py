@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Tuple, Union
 import torch
 
 from .block_metadata import BlockLayout, BlockPolicy
+from .triton_selected_block_attn import (
+    triton_semantic_attention,
+    is_triton_available as _tsb_triton_avail,
+    is_cuda_available as _tsb_cuda_avail,
+)
 from .block_table import BlockTable
 from .prefetch import (
     get_prefetcher,

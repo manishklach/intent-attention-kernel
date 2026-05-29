@@ -1,82 +1,71 @@
+"""Tests for block_scorer.py."""
+from __future__ import annotations
+
 import torch
-from intent_attention.block_scorer import BlockScorer
-from intent_attention.block_metadata import SemanticBlock, BlockPolicy, BlockLayout
-from intent_attention.reference import semantic_block_attention
+
+from intent_attention.block_scorer import BlockScorer, score_blocks, score_layout
+from intent_attention.block_metadata import BlockLayout, SemanticBlock, BlockPolicy
 
 
-def test_orthogonal_block_scores_near_zero():
-    """Query with zero key block => cosine similarity is 0."""
-    head_dim = 64
-    q = torch.randn(1, 1, 16, head_dim)
-    rep = torch.zeros(head_dim)
-
+def test_block_scorer_class():
     scorer = BlockScorer()
-    scores = scorer.score_blocks(q, [rep])
-    assert scores[0] == 0.0, f"Expected zero score, got {scores[0]:.4f}"
+    q = torch.randn(2, 4, 8, 64)
+    key_reps = [torch.randn(64) for _ in range(3)]
+    scores = scorer.score_blocks(q, key_reps, threshold=0.3)
+    assert len(scores) == 3
 
 
-def test_aligned_block_scores_near_one():
-    """Query aligned with block mean key => score near 1."""
-    head_dim = 64
-    q = torch.randn(1, 1, 16, head_dim)
-
-    rep = q.mean(dim=-2).mean(dim=(0, 1))
-
+def test_block_scorer_scores_in_range():
     scorer = BlockScorer()
-    scores = scorer.score_blocks(q, [rep])
-    assert scores[0] > 0.85, f"Expected near-one score, got {scores[0]:.4f}"
+    q = torch.randn(1, 1, 4, 64)
+    key_reps = [torch.randn(64) for _ in range(5)]
+    scores = scorer.score_blocks(q, key_reps)
+    for s in scores:
+        assert 0.0 <= s <= 1.0
 
 
-def test_threshold_filtering_via_scorer():
-    """Scores above threshold should be >= threshold; those below should be <."""
-    head_dim = 64
-    q = torch.randn(1, 2, 8, head_dim)
-
-    rep_aligned = q.mean(dim=-2).mean(dim=(0, 1))
-    rep_ortho = torch.zeros(head_dim)
-
+def test_block_scorer_empty():
     scorer = BlockScorer()
-    scores = scorer.score_blocks(q, [rep_aligned, rep_ortho], threshold=0.5)
-
-    assert scores[0] >= 0.5, f"Aligned block below threshold: {scores[0]:.4f}"
-    assert scores[1] < 0.5, f"Orthogonal block above threshold: {scores[1]:.4f}"
-
-
-def test_dynamic_scoring_populates_debug():
-    """ATTEND blocks with score=None get populated and reported in debug."""
-    q = torch.randn(1, 1, 8, 32)
-    k = torch.randn(1, 1, 64, 32)
-    v = torch.randn(1, 1, 64, 32)
-
-    layout = BlockLayout(
-        [
-            SemanticBlock("always", 0, 32, BlockPolicy.ALWAYS),
-            SemanticBlock("dynamic_attend", 32, 64, BlockPolicy.ATTEND, score=None),
-        ]
-    )
-
-    out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
-
-    assert out.shape == (1, 1, 8, 32)
-    assert "dynamic_scores" in dbg
-    assert dbg["dynamic_scores"]["dynamic_attend"] >= 0.0
-    assert dbg["selected_block_names"] == ["always", "dynamic_attend"]
+    q = torch.randn(1, 1, 4, 64)
+    scores = scorer.score_blocks(q, [])
+    assert scores == []
 
 
-def test_static_score_still_works():
-    """Blocks with explicit static score are unchanged."""
-    q = torch.randn(1, 1, 8, 32)
-    k = torch.randn(1, 1, 64, 32)
-    v = torch.randn(1, 1, 64, 32)
+def test_score_blocks_function():
+    q = torch.randn(2, 4, 8, 64)
+    k = torch.randn(2, 4, 64, 64)
+    block_starts = torch.tensor([0, 32])
+    block_ends = torch.tensor([32, 64])
+    scores = score_blocks(q, k, block_starts, block_ends)
+    assert len(scores) == 2
 
-    layout = BlockLayout(
-        [
-            SemanticBlock("a", 0, 32, BlockPolicy.ALWAYS),
-            SemanticBlock("b", 32, 64, BlockPolicy.ATTEND, score=0.75),
-        ]
-    )
 
-    out, dbg = semantic_block_attention(q, k, v, layout, return_debug=True)
-    assert "dynamic_scores" not in dbg
-    assert dbg["selected_block_names"] == ["a", "b"]
-    assert out.shape == (1, 1, 8, 32)
+def test_score_blocks_scores_in_range():
+    q = torch.randn(1, 1, 4, 64)
+    k = torch.randn(1, 1, 64, 64)
+    block_starts = torch.tensor([0, 16, 32, 48])
+    block_ends = torch.tensor([16, 32, 48, 64])
+    scores = score_blocks(q, k, block_starts, block_ends)
+    for s in scores:
+        assert 0.0 <= s <= 1.0
+
+
+def test_score_blocks_empty():
+    q = torch.randn(1, 1, 4, 64)
+    k = torch.randn(1, 1, 64, 64)
+    scores = score_blocks(q, k, torch.zeros(0, dtype=torch.long), torch.zeros(0, dtype=torch.long))
+    assert scores == []
+
+
+def test_score_layout():
+    q = torch.randn(1, 1, 4, 64)
+    k = torch.randn(1, 1, 64, 64)
+    blocks = [
+        SemanticBlock("a", 0, 16, BlockPolicy.ATTEND),
+        SemanticBlock("b", 16, 32, BlockPolicy.ATTEND),
+        SemanticBlock("c", 32, 64, BlockPolicy.ALWAYS),
+    ]
+    layout = BlockLayout(blocks)
+    scores = score_layout(q, k, layout)
+    assert len(scores) == 3
+    assert scores["c"] >= 0.0

@@ -287,14 +287,17 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 </section>
 
 <section id="pillars">
-<h2>Five Pillars of the Project</h2>
-<p>The project explores five complementary mechanisms for exposing runtime intent to the KV execution layer.</p>
+<h2>Eight Pillars of the Project</h2>
+<p>The project explores eight complementary mechanisms for exposing runtime intent to the KV execution layer.</p>
 <div class="card-grid">
 <div class="card"><span class="card-tag tag-blue">Pillar 1</span><h3>Semantic KV Block Selection</h3><p>The runtime marks regions of context with policies. The CPU reference gathers selected K/V tokens and computes attention only over selected regions. This is the core interface between runtime intent and the attention layer.</p></div>
 <div class="card"><span class="card-tag tag-cyan">Pillar 2</span><h3>Selected-Block Attention Reference</h3><p>A PyTorch CPU oracle proves correctness for non-causal selected-block attention. It compares selected-KV behavior against dense attention over the same selected K/V tensors. Causal selected-block attention is intentionally not implemented yet.</p></div>
 <div class="card"><span class="card-tag tag-purple">Pillar 3</span><h3>Dynamic Block Scoring</h3><p>A lightweight heuristic scores candidate blocks using query-to-block cosine similarity. This is not a trained router; it is a prototype control-plane signal for modeling the surface that a future runtime could consume.</p></div>
 <div class="card"><span class="card-tag tag-orange">Pillar 4</span><h3>IntentQuant-KV</h3><p>Not every KV block deserves the same precision. Critical regions can stay high precision (FP16/FP8) while lower-score or colder blocks may use INT8, INT4, INT4_RESIDUAL, or SKIP. No accuracy or perplexity preservation is claimed.</p></div>
 <div class="card"><span class="card-tag tag-green">Pillar 5</span><h3>Speculative KV Prefetch Simulation</h3><p>Adjacent decode steps may reuse similar KV regions. A prefetcher can predict likely next-step pages. Current benchmark simulates hit rate only. Prefetch must never affect correctness. No real latency speedup is claimed.</p></div>
+<div class="card"><span class="card-tag tag-blue">Pillar 6</span><h3>Multi-Head Latent Attention (MLA)</h3><p>Compressed KV attention via latent-space joint projection (DeepSeek-V2/V3 style). MLA block table stores per-block compressed vectors instead of full KV tensors. CPU reference for sparse MLA decode over selected latent blocks.</p></div>
+<div class="card"><span class="card-tag tag-cyan">Pillar 7</span><h3>SpecAttn Verification-Guided Selection</h3><p>EMA-based block importance tracking from attention-weight verification. After each decode step, low-scoring ATTEND blocks are demoted to SKIP. Includes speculative rejection sampling for draft-verify token acceptance.</p></div>
+<div class="card"><span class="card-tag tag-purple">Pillar 8</span><h3>KIVI-Style INT8 KV Quantisation</h3><p>Per-channel K and per-token V asymmetric INT8 quantisation with FP16 residual window. Modular KVQuantStore with block-id indexing, dequantisation, and SNR diagnostics. Complements IntentQuant policy layer.</p></div>
 </div>
 </section>
 <section id="architecture">
@@ -303,15 +306,22 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 <div class="arch-diagram">
 <div class="arch-grid">
 <div class="arch-col"><h3>CPU-First Simulation Layer</h3>
-<div class="arch-node"><span class="label">PyTorch Reference</span><br>Dense + selected-block attention</div>
+<div class="arch-node"><span class="label">PyTorch Reference</span><br>Dense + selected-block + block-range attention</div>
 <div class="arch-node"><span class="label">Analytical Cost Model</span><br>FLOP and KV-byte savings</div>
 <div class="arch-node"><span class="label">Synthetic Trace Generator</span><br>Deterministic agentic layouts</div>
-<div class="arch-node"><span class="label">Benchmark Scripts</span><br>6 CPU benchmarks</div>
-<div class="arch-node"><span class="label">pytest Suite</span><br>74+ tests</div>
+<div class="arch-node"><span class="label">Benchmark Scripts</span><br>15 CPU benchmarks</div>
+<div class="arch-node"><span class="label">pytest Suite</span><br>244+ tests</div>
+<div class="arch-node"><span class="label">MLA Reference</span><br>Compressed latent KV attention</div>
+<div class="arch-node"><span class="label">KIVI Quant Store</span><br>Per-channel / per-token INT8</div>
+<div class="arch-node"><span class="label">RoPE Utilities</span><br>Precompute, apply, rotate</div>
+<div class="arch-node"><span class="label">SpecAttn Controller</span><br>Verification-guided selection</div>
+<div class="arch-node"><span class="label">KVMemoryManager</span><br>Format tracking, demotion/promotion</div>
 </div>
-<div class="arch-col"><h3>Future GPU Kernel Path</h3>
+<div class="arch-col"><h3>GPU Kernel Path</h3>
 <div class="arch-node"><span class="label">Triton Selected-Block Attention</span><br>Iterate only over selected pages</div>
+<div class="arch-node"><span class="label">Triton Block-Range Attention</span><br>Block-starts/ends iteration</div>
 <div class="arch-node"><span class="label">Per-Page Dequantization</span><br>INT8 mixed-precision attention</div>
+<div class="arch-node"><span class="label">Adaptive-Format Decode</span><br>FP16/INT8/SPARSE/SKIP dispatch</div>
 <div class="arch-node"><span class="label">Paged KV Block Table</span><br>Physical page indirection</div>
 <div class="arch-node"><span class="label">Query-Position-Aware Masking</span><br>Correct causal selected-block</div>
 <div class="arch-node"><span class="label">Prefetch / Staging Hints</span><br>Latency hiding experiments</div>
@@ -319,7 +329,7 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 </div>
 <div class="arch-center" style="margin-top:1.5rem"><span class="label">Metadata-Driven KV Execution Interface</span></div>
 <div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem;margin-top:0.5rem">
-<div class="arch-node" style="text-align:center;width:100%"><span class="label">Agentic Runtime → Semantic Blocks → Policy Selection → Dynamic Scoring → Paged KV Table → IntentQuant-KV → Prefetch Prediction → Selected-KV Attention → Future GPU Kernel</span></div>
+<div class="arch-node" style="text-align:center;width:100%"><span class="label">Agentic Runtime → Semantic Blocks → Policy Selection → Dynamic Scoring → Paged KV Table → IntentQuant-KV → MLA/KIVI/RoPE/SpecAttn → Prefetch Prediction → Selected-KV Attention → Future GPU Kernel</span></div>
 </div>
 </div>
 </section>
@@ -388,6 +398,10 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 <div class="bench-card"><h4>bench_prefetch.py</h4><p class="purpose">Simulated next-step KV page prediction and hit-rate behavior for speculative prefetch during agentic decode.</p><p class="not-prove"><strong>Does not prove:</strong> real latency hiding</p></div>
 <div class="bench-card"><h4>bench_dynamic_scoring.py</h4><p class="purpose">Synthetic query-to-block cosine-similarity scoring behavior across varying block counts.</p><p class="not-prove"><strong>Does not prove:</strong> routing quality or general solution</p></div>
 <div class="bench-card"><h4>bench_intent_quant.py</h4><p class="purpose">IntentQuant-KV mixed-precision byte model and fake quant/dequant reconstruction metrics for FP16/FP8/INT8/INT4/INT4_RESIDUAL.</p><p class="not-prove"><strong>Does not prove:</strong> model quality or perplexity preservation</p></div>
+<div class="bench-card"><h4>bench_kv_quant.py</h4><p class="purpose">KV quant roundtrip speed benchmark — measures quantise/dequantise throughput for per-channel K and per-token V INT8 quantisation.</p><p class="not-prove"><strong>Does not prove:</strong> real memory bandwidth reduction</p></div>
+<div class="bench-card"><h4>bench_kv_memory_manager.py</h4><p class="purpose">KVMemoryManager benchmark across four config tiers: default, aggressive demotion, prefetch warmup, self-tuning.</p><p class="not-prove"><strong>Does not prove:</strong> GPU speedup</p></div>
+<div class="bench-card"><h4>bench_savings.py</h4><p class="purpose">Estimated savings from block sparsity + quant at varying levels (6.25% to dense). Reports GFLOPs, GB read, speedup vs dense.</p><p class="not-prove"><strong>Does not prove:</strong> real GPU performance</p></div>
+<div class="bench-card"><h4>bench_specattn.py</h4><p class="purpose">SpecAttn controller throughput benchmark — simulates verification-based block selection over multiple decode steps.</p><p class="not-prove"><strong>Does not prove:</strong> real decode speedup</p></div>
 </div>
 <div class="table-wrap">
 <table>
@@ -437,8 +451,15 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 <div class="checklist-item"><span class="check">&#10003;</span> Triton/CUDA placeholder paths with CPU-safe fallback</div>
 <div class="checklist-item"><span class="check">&#10003;</span> HuggingFace Transformers integration (patch_model)</div>
 <div class="checklist-item"><span class="check">&#10003;</span> vLLM-style paged-attention bridge</div>
-<div class="checklist-item"><span class="check">&#10003;</span> pytest coverage (74+ tests)</div>
-<div class="checklist-item"><span class="check">&#10003;</span> 6 CPU benchmark scripts</div>
+<div class="checklist-item"><span class="check">&#10003;</span> pytest coverage (244+ tests)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> 15 CPU benchmark scripts</div>
+<div class="checklist-item"><span class="check">&#10003;</span> RoPE precompute / apply / rotate utilities</div>
+<div class="checklist-item"><span class="check">&#10003;</span> KIVI-style per-channel K / per-token V INT8 quant</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Multi-Head Latent Attention (MLA) block table + sparse decode</div>
+<div class="checklist-item"><span class="check">&#10003;</span> SpecAttn verification-guided block selection controller</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Selected-block range Triton kernel + CPU fallback</div>
+<div class="checklist-item"><span class="check">&#10003;</span> block-level scoring functions (score_blocks, score_layout)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> selected_block_attention dispatch (GPU → CPU fallback)</div>
 </div>
 </section>
 <section id="limits">
@@ -471,6 +492,9 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 <div class="roadmap-item"><span class="phase">Phase 5</span><h4>IntentQuant-KV Dequant-in-Attention Fusion</h4><p>Fuse per-page dequantization with the attention kernel to reduce memory round-trips.</p></div>
 <div class="roadmap-item"><span class="phase">Phase 6</span><h4>Prefetch / Staging on Real GPU Hardware</h4><p>Experiments with prefetch hints and latency hiding on NVIDIA GPUs.</p></div>
 <div class="roadmap-item"><span class="phase">Phase 7</span><h4>Integration Experiments</h4><p>vLLM and HuggingFace Transformers integration experiments for real inference workloads.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 8</span><h4>MLA Triton Kernel</h4><p>GPU decode for compressed latent attention with absorbed weight fusion.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 9</span><h4>SpecAttn End-to-End on GPU</h4><p>Real draft-verify loop with block selection on GPU hardware.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 10</span><h4>Trained Routing</h4><p>Replace heuristic block scoring with learned block selection.</p></div>
 </div>
 </section>
 
@@ -493,7 +517,10 @@ python benchmarks/bench_cpu_reference.py
 python benchmarks/bench_kv_quant.py
 python benchmarks/bench_prefetch.py
 python benchmarks/bench_dynamic_scoring.py
-python benchmarks/bench_intent_quant.py</code></pre>
+python benchmarks/bench_intent_quant.py
+python benchmarks/bench_kv_quant.py --dry-run
+python benchmarks/bench_savings.py --dry-run
+python benchmarks/bench_specattn.py --dry-run</code></pre>
 </div>
 </section>
 

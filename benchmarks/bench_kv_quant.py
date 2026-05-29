@@ -1,48 +1,60 @@
+"""Benchmark: KV quant roundtrip speed."""
 from __future__ import annotations
 
+import math
+import time
 
-def main() -> None:
-    kv_len_sizes = [4096, 16384, 65536]
-    skip_ratios = [0.3, 0.5, 0.7]
-    d_head = 128
-    page_size = 128
+import torch
 
-    B = 1
-    H = 32
+from intent_attention.kv_quant import quantise_k_perchannel, dequantise_k, quantise_v_pertoken, dequantise_v
 
-    header = (
-        f"{'KV tokens':>10} {'Skip ratio':>11} {'Selected':>10}"
-        f" {'fp16 bytes':>14} {'int8+scale':>14} {'Saved %':>8}"
-    )
-    print(header)
-    print("-" * 68)
 
-    for kv_len in kv_len_sizes:
-        total_tokens = kv_len
-        num_pages = (total_tokens + page_size - 1) // page_size
-        for skip in skip_ratios:
-            selected_pages = max(1, int(num_pages * (1.0 - skip)))
-            selected_tokens = selected_pages * page_size
+def bench_kv_quant(page_size=64, d_head=128, n_pages=256, dry_run=False):
+    k = torch.randn(n_pages * page_size, d_head)
+    v = torch.randn(n_pages * page_size, d_head)
+    if dry_run:
+        print(f"[dry-run] kv_quant: {n_pages} pages, {page_size=}, {d_head=}")
+        return
+    k_split = torch.split(k, page_size)
+    v_split = torch.split(v, page_size)
+    k_int8_list = []
+    v_int8_list = []
+    ks_list = []
+    vs_list = []
+    t0 = time.perf_counter()
+    for kp, vp in zip(k_split, v_split):
+        k_int8, ks, _ = quantise_k_perchannel(kp)
+        v_int8, vs, _ = quantise_v_pertoken(vp)
+        k_int8_list.append(k_int8)
+        v_int8_list.append(v_int8)
+        ks_list.append(ks)
+        vs_list.append(vs)
+    quant_t = time.perf_counter() - t0
+    us_per_page = quant_t / n_pages * 1e6
+    print(f"  quant: {quant_t*1000:.1f} ms ({us_per_page:.1f} us/page)")
+    t1 = time.perf_counter()
+    for k_int8, ks in zip(k_int8_list, ks_list):
+        dequantise_k(k_int8, ks, ks)
+    for v_int8, vs in zip(v_int8_list, vs_list):
+        dequantise_v(v_int8, vs)
+    deq_t = time.perf_counter() - t1
+    print(f"  dequant: {deq_t*1000:.1f} ms")
+    total_bytes = 0
+    for k_int8, v_int8 in zip(k_int8_list, v_int8_list):
+        total_bytes += (k_int8.numel() + v_int8.numel()) * 1
+    mem_orig = n_pages * page_size * d_head * 2 * 2
+    print(f"  memory: {total_bytes / 1e6:.1f} MB (vs {mem_orig / 1e6:.1f} MB fp16)")
 
-            fp16_dense = 2 * total_tokens * d_head * 2 * H * B  # H*B for full KV
-            int8_selected = (
-                (
-                    2 * selected_tokens * d_head * 1  # K+V int8
-                    + 2 * selected_pages * d_head * 2  # K+V scales fp16
-                )
-                * H
-                * B
-            )
 
-            fp16_dense_b = int(round(fp16_dense / 1e6, 0))
-            int8_selected_b = int(round(int8_selected / 1e6, 0))
-            saved_pct = (1.0 - int8_selected / max(fp16_dense, 1)) * 100.0
-
-            print(
-                f"{kv_len:>10} {skip:>10.1f}  {selected_tokens:>8}"
-                f" {fp16_dense_b:>12d} MB {int8_selected_b:>12d} MB {saved_pct:>7.1f}%"
-            )
+def bench_kv_quant_main(dry_run=False):
+    print("=== KV Quant Benchmark ===")
+    for pages in [64, 256]:
+        for ps in [64, 128]:
+            print(f"\n  [{pages} pages x {ps} tokens, d=128]:")
+            bench_kv_quant(page_size=ps, n_pages=pages, dry_run=dry_run)
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    dry_run = "--dry-run" in sys.argv
+    bench_kv_quant_main(dry_run=dry_run)

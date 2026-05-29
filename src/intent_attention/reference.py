@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Tuple, Union
 import torch
 
 from .block_metadata import BlockLayout, BlockPolicy
+from .triton_selected_block_attn import (
+    is_triton_available as _tsb_triton_avail,
+    is_cuda_available as _tsb_cuda_avail,
+    triton_semantic_attention as _triton_selected_block_attn,
+)
 
 
 def dense_attention(
@@ -13,6 +18,7 @@ def dense_attention(
     k: torch.Tensor,
     v: torch.Tensor,
     causal: bool = False,
+    mask: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     scale = 1.0 / math.sqrt(q.size(-1))
     scores = torch.matmul(q, k.transpose(-2, -1)) * scale
@@ -20,12 +26,15 @@ def dense_attention(
     if causal:
         q_len = q.size(-2)
         kv_len = k.size(-2)
-        mask = torch.triu(
+        causal_mask = torch.triu(
             torch.full(
                 (q_len, kv_len), float("-inf"), device=q.device, dtype=scores.dtype
             ),
             diagonal=1,
         )
+        scores = scores + causal_mask
+
+    if mask is not None:
         scores = scores + mask
 
     attn_weights = torch.softmax(scores, dim=-1)
@@ -122,3 +131,45 @@ def semantic_block_attention(
         return output, debug
 
     return output
+
+
+def selected_block_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    block_starts: torch.Tensor,
+    block_ends: torch.Tensor,
+    semantic_ids: Optional[torch.Tensor] = None,
+    scale: Optional[float] = None,
+    use_gpu: bool = True,
+) -> torch.Tensor:
+    """Selected block attention via block boundaries.
+
+    Tries the Triton kernel if GPU available, falls back to CPU loop.
+    """
+    if use_gpu and _tsb_triton_avail() and _tsb_cuda_avail() and q.is_cuda:
+        try:
+            return _triton_selected_block_attn(q, k, v, block_starts, block_ends, scale=scale)
+        except Exception:
+            pass
+    return _selected_block_attention_cpu(q, k, v, block_starts, block_ends, scale=scale)
+
+
+def _selected_block_attention_cpu(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    block_starts: torch.Tensor,
+    block_ends: torch.Tensor,
+    scale: Optional[float] = None,
+) -> torch.Tensor:
+    if scale is None:
+        scale = 1.0 / math.sqrt(q.size(-1))
+    out = torch.zeros_like(q)
+    for s, e in zip(block_starts.tolist(), block_ends.tolist()):
+        k_b = k[..., s:e, :]
+        v_b = v[..., s:e, :]
+        scores = torch.matmul(q, k_b.transpose(-2, -1)) * scale
+        attn_w = torch.softmax(scores, dim=-1)
+        out += torch.matmul(attn_w, v_b)
+    return out

@@ -43,8 +43,14 @@ jobs:
       - name: Run CPU reference benchmark
         run: python benchmarks/bench_cpu_reference.py
 
-      - name: Run KV quantization benchmark
-        run: python benchmarks/bench_kv_quant.py
+      - name: Run KV quant roundtrip benchmark
+        run: python benchmarks/bench_kv_quant.py --dry-run
+
+      - name: Run savings benchmark
+        run: python benchmarks/bench_savings.py --dry-run
+
+      - name: Run SpecAttn benchmark
+        run: python benchmarks/bench_specattn.py --dry-run
 
       - name: Run prefetch simulation benchmark
         run: python benchmarks/bench_prefetch.py

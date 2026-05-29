@@ -81,8 +81,9 @@ KV Block Router
      |        \
      |         +--> Dynamic Scoring (query-to-block cosine)
      |         +--> IntentQuant Precision (per-block FP16/INT8/INT4/SKIP)
-     |         +--> Adaptive Format Metadata (per-page FP16/INT8/SPARSE)
-     |         +--> Prefetch Hints (next-step candidates)
+      |         +--> Adaptive Format Metadata (per-page FP16/INT8/SPARSE)
+      |         +--> KVMemoryManager (format tracking, demotion/promotion, decode)
+      |         +--> Prefetch Hints (next-step candidates)
      v
 Kernel Metadata
      |
@@ -117,10 +118,11 @@ Future Triton/CUDA Kernel (optional prototype exists for adaptive-format)
 | End-to-end router demo | `examples/end_to_end_router_demo.py` | Stable |
 | Adaptive Format KV Attention Reference (CPU) | `src/.../adaptive_format_attention.py` | Stable |
 | Triton Adaptive-Format Decode Attention Kernel (GPU prototype) | `src/.../triton_adaptive_format_attention.py` | Optional |
+| CPU Adaptive KV Runtime (KVMemoryManager) | `src/.../kv_memory_manager.py` | Stable |
 
 ### Tests
 
-- 160+ unit and integration tests (pytest) (Triton tests skip without GPU)
+- 200+ unit and integration tests (pytest) (Triton tests skip without GPU)
 - All CPU tests pass with no CUDA or Triton required
 
 ---

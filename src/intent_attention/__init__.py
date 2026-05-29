@@ -49,6 +49,12 @@ from .triton_intent_quant_attention import (
     make_page_tables_from_selected_pages,
     make_precision_tensor,
 )
+from .kv_memory_manager import (
+    KVMemoryManager,
+    PageState,
+    PageStorageFormat,
+    PageFormatPolicy,
+)
 from .triton_adaptive_format_attention import (
     AdaptivePageFormat,
     AdaptiveFormatKernelConfig,
@@ -113,4 +119,8 @@ __all__ = [
     "adaptive_format_decode_attention_triton",
     "adaptive_format_decode_attention_reference_dispatch",
     "make_adaptive_page_tables",
+    "KVMemoryManager",
+    "PageState",
+    "PageStorageFormat",
+    "PageFormatPolicy",
 ]

@@ -202,6 +202,18 @@ python benchmarks/bench_triton_adaptive_format_attention.py
 
 Related: `docs/triton_adaptive_format_attention.md`
 
+### 12. CPU Adaptive KV Runtime — KVMemoryManager
+
+An orchestrator (`kv_memory_manager.py`) that unifies per-page storage format assignment, access tracking, cold-page demotion (FP16→INT8), hot-page promotion (INT8→FP16), page selection, prefetch prediction, and adaptive-format attention into a single runtime interface.
+
+Demonstrates the "smart KV cache memory" concept on CPU: each page carries metadata (format, policy, access count, recency), and the runtime makes format-transition decisions based on access patterns. No GPU speedup is claimed.
+
+```bash
+python examples/cpu_adaptive_kv_runtime_demo.py
+```
+
+Related: `docs/kv_memory_manager.md`
+
 ---
 
 ## IntentQuant-KV
@@ -380,6 +392,9 @@ python benchmarks/bench_block_router.py
 
 # Run end-to-end router demo
 python examples/end_to_end_router_demo.py
+
+# Run CPU Adaptive KV Runtime demo
+python examples/cpu_adaptive_kv_runtime_demo.py
 
 # Dry-run LLM quality validation (validates imports only, no model download)
 python experiments/llm_quality_validation.py --dry-run
@@ -592,6 +607,7 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] GPU benchmarking guide (docs/gpu_benchmarking.md)
 - [x] Adaptive Format KV Attention Reference — CPU reference for heterogeneous KV page formats (FP16, INT8, sparse)
 - [x] Triton Adaptive-Format Decode Attention Kernel — optional GPU decode with per-page FP16/INT8/SPARSE/SKIP dispatch
+- [x] CPU Adaptive KV Runtime (KVMemoryManager) — orchestrator for format assignment, access tracking, demotion/promotion, and decode
 
 ---
 
@@ -699,6 +715,7 @@ python -m ruff check src tests benchmarks
 - [x] **Triton IntentQuant decode kernel** — selected-page decode with per-page precision (FP16/INT8)
 - [x] **Adaptive Format KV Attention Reference** — CPU reference for heterogeneous KV page formats
 - [x] **Triton Adaptive-Format Decode Kernel** — GPU decode with per-page FP16/INT8/SPARSE/SKIP dispatch
+- [x] **CPU Adaptive KV Runtime** — smart KV cache memory manager with format tracking and demotion/promotion
 - [ ] **CUDA kernel** — minimal paged-attention with semantic skipping
 - [ ] **Variable block sizes** — support non-uniform page sizes
 - [ ] **Integration with HuggingFace / vLLM** — plug into real inference

@@ -64,6 +64,9 @@ jobs:
       - name: Run end-to-end router demo
         run: python examples/end_to_end_router_demo.py
 
+      - name: Run CPU Adaptive KV Runtime demo
+        run: python examples/cpu_adaptive_kv_runtime_demo.py
+
       - name: Dry-run LLM quality validation
         run: python experiments/llm_quality_validation.py --dry-run
 

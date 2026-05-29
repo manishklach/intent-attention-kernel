@@ -10,6 +10,7 @@ from intent_attention.kv_memory_manager import (
     PageState,
     PageStorageFormat,
     PageFormatPolicy,
+    _page_page_mask,
 )
 from intent_attention.block_metadata import BlockLayout, SemanticBlock, BlockPolicy
 
@@ -46,6 +47,28 @@ class TestPageFormatPolicy:
         assert p.skip_format == PageStorageFormat.SKIP
         assert p.demote_cold_after_steps == 10
         assert p.promote_hot_after_accesses == 3
+
+
+class TestPagePageMask:
+    def test_full_page_returns_full_mask(self):
+        mask = _page_page_mask(16, 0, 16)
+        assert mask.all()
+
+    def test_partial_start(self):
+        mask = _page_page_mask(16, 4, 16)
+        assert not mask[:4].any()
+        assert mask[4:].all()
+
+    def test_partial_end(self):
+        mask = _page_page_mask(16, 0, 12)
+        assert mask[:12].all()
+        assert not mask[12:].any()
+
+    def test_middle_slice(self):
+        mask = _page_page_mask(16, 4, 12)
+        assert not mask[:4].any()
+        assert mask[4:12].all()
+        assert not mask[12:].any()
 
 
 class TestKVMemoryManager:
@@ -92,7 +115,6 @@ class TestKVMemoryManager:
         mgr.write_page(0, kv)
         assert mgr.pages[0].kv_int8 is not None
         assert mgr.pages[0].kv_int8_scale > 0
-        # Read back should be close
         readback = mgr._read_page_data(0)
         assert readback is not None
         assert readback.shape == (4, 16)
@@ -122,7 +144,7 @@ class TestKVMemoryManager:
         for pid in range(2):
             mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
             mgr.pages[pid].last_access_step = 0
-        mgr.step_count = 15  # well past threshold
+        mgr.step_count = 15
         demoted = mgr.demote_cold_pages()
         assert len(demoted) == 2
         assert mgr.pages[0].format == PageStorageFormat.INT8
@@ -134,7 +156,7 @@ class TestKVMemoryManager:
         mgr.allocate_pages("block", "ATTEND", 1, score=0.1)
         mgr.write_page(0, torch.randn(4, 16, dtype=torch.float16))
         mgr.pages[0].format = PageStorageFormat.INT8
-        mgr.pages[0].access_count = 5  # above threshold
+        mgr.pages[0].access_count = 5
         promoted = mgr.promote_hot_pages()
         assert len(promoted) == 1
         assert mgr.pages[0].format == PageStorageFormat.FP16
@@ -143,7 +165,7 @@ class TestKVMemoryManager:
         mgr = small_manager
         mgr.allocate_pages("keep", "ALWAYS", 2)
         mgr.allocate_pages("skip", "SKIP", 2)
-        selected, _, page_ids_t = mgr.select_pages()
+        selected, _, page_ids_t, _ = mgr.select_pages()
         assert len(selected) == 2
         assert 0 in selected
         assert 1 in selected
@@ -209,14 +231,12 @@ class TestKVMemoryManager:
         q = torch.randn(1, 1, 16, dtype=torch.float16)
         mgr.step(q)
         preds = mgr.predict_prefetch()
-        # After a single step with history_size=4, min_frequency=3, no prediction
         assert isinstance(preds, list)
 
     def test_empty_manager_output(self):
         mgr = KVMemoryManager(num_pages=4, page_size=4, head_dim=16)
         q = torch.randn(1, 1, 16, dtype=torch.float16)
         out = mgr.step(q)
-        # No pages selected -> zero output
         assert torch.allclose(out, torch.zeros_like(out), atol=1e-6)
 
     def test_demote_promote_cycle(self, small_manager):
@@ -224,14 +244,129 @@ class TestKVMemoryManager:
         mgr.allocate_pages("block", "ALWAYS", 1)
         kv = torch.randn(4, 16, dtype=torch.float16)
         mgr.write_page(0, kv)
-
-        # Force demotion
         mgr.pages[0].last_access_step = 0
         mgr.step_count = 15
         mgr.demote_cold_pages()
         assert mgr.pages[0].format == PageStorageFormat.INT8
-
-        # Simulate many accesses to trigger promotion
         mgr.pages[0].access_count = 10
         mgr.promote_hot_pages()
         assert mgr.pages[0].format == PageStorageFormat.FP16
+
+    # ── Partial-page mask support ──
+
+    def test_register_layout_creates_partial_masks(self):
+        mgr = KVMemoryManager(num_pages=8, page_size=16, head_dim=32)
+        layout = BlockLayout([
+            SemanticBlock("partial", 0, 20, BlockPolicy.ALWAYS),
+        ])
+        mgr.register_layout(layout)
+        assert 0 in mgr.pages
+        assert 1 in mgr.pages
+        # Page 0 covers tokens 0-15 (full)
+        # Page 1 covers tokens 16-19 (partial)
+        p0 = mgr.pages[0]
+        p1 = mgr.pages[1]
+        assert p0.partial_page_mask is None
+        assert p1.partial_page_mask is not None
+        assert p1.partial_page_mask.shape == (16,)
+        assert p1.partial_page_mask[:4].all()
+        assert not p1.partial_page_mask[4:].any()
+
+    def test_register_layout_exact_multiple_no_masks(self):
+        mgr = KVMemoryManager(num_pages=4, page_size=16, head_dim=32)
+        layout = BlockLayout([
+            SemanticBlock("exact", 0, 32, BlockPolicy.ALWAYS),
+        ])
+        mgr.register_layout(layout)
+        for pid in range(2):
+            assert mgr.pages[pid].partial_page_mask is None
+
+    def test_step_with_mask_does_not_crash(self, small_manager):
+        mgr = small_manager
+        # Use small page_size=4, allocate a block of 6 tokens (spans 2 pages: 4+2)
+        layout = BlockLayout([
+            SemanticBlock("partial", 0, 6, BlockPolicy.ALWAYS),
+        ])
+        mgr.register_layout(layout)
+        for pid in mgr.pages:
+            mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
+        q = torch.randn(1, 1, 16, dtype=torch.float16)
+        out = mgr.step(q, mask=True)
+        assert out.shape == (1, 1, 16)
+
+    def test_select_pages_returns_masks(self, small_manager):
+        mgr = small_manager
+        layout = BlockLayout([
+            SemanticBlock("partial", 0, 6, BlockPolicy.ALWAYS),
+        ])
+        mgr.register_layout(layout)
+        _, _, _, page_masks = mgr.select_pages()
+        assert page_masks is not None
+        assert 1 in page_masks  # page 1 is partial (tokens 4-5)
+
+    # ── Self-tuning policy ──
+
+    def test_adapt_policy_tightens_aggressive_demotion(self):
+        mgr = KVMemoryManager(num_pages=4, page_size=4, head_dim=16, adapt_policy_every=1)
+        mgr.allocate_pages("block", "ALWAYS", 2)
+        for pid in range(2):
+            mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
+        # Simulate many bad demotions: demote, then re-access
+        mgr.demote_cold_pages()
+        mgr._demote_history.append(True)
+        mgr._demote_history.append(True)
+        mgr._demote_history.append(False)
+        old_threshold = mgr.policy.demote_cold_after_steps
+        mgr._adapt_policy()
+        assert mgr.policy.demote_cold_after_steps >= old_threshold
+
+    def test_adapt_policy_tightens_overly_conservative(self):
+        mgr = KVMemoryManager(num_pages=4, page_size=4, head_dim=16, adapt_policy_every=1)
+        mgr.allocate_pages("block", "ALWAYS", 2)
+        for pid in range(2):
+            mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
+        old_threshold = mgr.policy.demote_cold_after_steps
+        # Make both pages appear cold
+        for pid in range(2):
+            mgr.pages[pid].last_access_step = -1
+        mgr._adapt_policy()
+        assert mgr.policy.demote_cold_after_steps <= old_threshold
+
+    # ── Prefetch warmup ──
+
+    def test_prefetch_warmup_promotes_predicted_pages(self, small_manager):
+        mgr = small_manager
+        mgr.allocate_pages("block", "ALWAYS", 2)
+        for pid in range(2):
+            mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
+        # Force pages to INT8
+        mgr.set_page_format(0, PageStorageFormat.INT8)
+        mgr.set_page_format(1, PageStorageFormat.INT8)
+        # Seed prefetch predictions
+        mgr._prefetch_predictions = [0, 1]
+        warmed = mgr._prefetch_warmup()
+        assert len(warmed) == 2
+        assert mgr.pages[0].format == PageStorageFormat.FP16
+        assert mgr.pages[1].format == PageStorageFormat.FP16
+
+    def test_step_with_warmup_does_not_crash(self, small_manager):
+        mgr = small_manager
+        mgr.allocate_pages("block", "ALWAYS", 2)
+        for pid in range(2):
+            mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
+            mgr.set_page_format(pid, PageStorageFormat.INT8)
+        mgr._prefetch_predictions = [0]
+        q = torch.randn(1, 1, 16, dtype=torch.float16)
+        out = mgr.step(q, warmup=True)
+        assert out.shape == (1, 1, 16)
+
+    # ── Combined features ──
+
+    def test_step_with_all_flags(self, small_manager):
+        mgr = small_manager
+        mgr.allocate_pages("block", "ALWAYS", 4)
+        for pid in range(4):
+            mgr.write_page(pid, torch.randn(4, 16, dtype=torch.float16))
+        q = torch.randn(1, 1, 16, dtype=torch.float16)
+        out = mgr.step(q, demote=True, promote=True, warmup=True, adapt=True, mask=True)
+        assert out.shape == (1, 1, 16)

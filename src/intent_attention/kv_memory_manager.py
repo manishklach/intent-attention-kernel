@@ -1,12 +1,13 @@
 """
 CPU Adaptive KV Runtime — smart memory layer for KV cache.
 
-Orchestrates per-page format assignment, demotion/promotion, page selection,
-prefetch prediction, and adaptive-format attention into a single interface.
+Orchestrates per-page format assignment, self-tuning demotion/promotion,
+partial-page mask support, prefetch warmup, and adaptive-format attention.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Dict, List, Optional, Tuple
@@ -36,6 +37,9 @@ class PageState:
     score: float = 0.0
     numa_hint: int = 0
 
+    token_start: int = 0
+    token_end: int = 0
+
     kv_fp16: Optional[torch.Tensor] = None
     kv_int8: Optional[torch.Tensor] = None
     kv_int8_scale: float = 1.0
@@ -46,13 +50,19 @@ class PageState:
     sp_v_values: Optional[torch.Tensor] = None
     sp_nnz: int = 0
 
+    partial_page_mask: Optional[torch.Tensor] = None
+
     def __post_init__(self):
         self.format = PageStorageFormat(self.format)
 
 
 @dataclass
 class PageFormatPolicy:
-    """Maps block policies and access patterns to storage formats."""
+    """Maps block policies and access patterns to storage formats.
+
+    Thresholds may be tuned automatically when
+    ``KVMemoryManager.adapt_policy_every`` > 0.
+    """
 
     always_format: PageStorageFormat = PageStorageFormat.FP16
     global_format: PageStorageFormat = PageStorageFormat.FP16
@@ -65,6 +75,11 @@ class PageFormatPolicy:
     demote_cold_to: PageStorageFormat = PageStorageFormat.INT8
     promote_hot_after_accesses: int = 3
     promote_hot_to: PageStorageFormat = PageStorageFormat.FP16
+
+    demote_step_min: int = 2
+    demote_step_max: int = 50
+    promote_access_min: int = 1
+    promote_access_max: int = 20
 
 
 def _format_for_block(policy: str, score: float, policy_cfg: PageFormatPolicy) -> PageStorageFormat:
@@ -81,12 +96,25 @@ def _format_for_block(policy: str, score: float, policy_cfg: PageFormatPolicy) -
     return policy_cfg.attend_low_format
 
 
+def _page_page_mask(page_size: int, token_start: int, token_end: int) -> torch.Tensor:
+    """Build a boolean mask for valid tokens within a single partial page."""
+    mask = torch.zeros(page_size, dtype=torch.bool)
+    lo = token_start % page_size
+    hi = lo + (token_end - token_start)
+    hi = min(hi, page_size)
+    mask[lo:hi] = True
+    return mask
+
+
 class KVMemoryManager:
     """Orchestrates smart KV cache memory management on CPU.
 
-    Owns per-page metadata, assigns storage formats based on policy,
-    handles demotion/promotion based on access patterns, selects pages
-    at decode time, and dispatches to adaptive-format attention.
+    Features:
+    - Per-page storage format assignment (FP16/INT8/SPARSE/SKIP)
+    - Partial-page token masks for precise block boundaries
+    - Self-tuning demotion/promotion thresholds
+    - Prefetch-aware warmup (promote predicted pages)
+    - Adaptive-format attention dispatch
     """
 
     def __init__(
@@ -97,6 +125,7 @@ class KVMemoryManager:
         policy: Optional[PageFormatPolicy] = None,
         device: str = "cpu",
         sparse_max_nnz: int = 8,
+        adapt_policy_every: int = 5,
     ):
         self.num_pages = num_pages
         self.page_size = page_size
@@ -104,6 +133,7 @@ class KVMemoryManager:
         self.policy = policy or PageFormatPolicy()
         self.device = torch.device(device)
         self.sparse_max_nnz = sparse_max_nnz
+        self.adapt_policy_every = adapt_policy_every
         self.step_count = 0
 
         self.pages: Dict[int, PageState] = {}
@@ -116,11 +146,13 @@ class KVMemoryManager:
         self._fp16_pool = torch.empty(total_elements, dtype=torch.float16, device=self.device)
         self._int8_pool = torch.empty(total_elements, dtype=torch.int8, device=self.device)
 
+        self._demote_history: deque[bool] = deque(maxlen=50)
+        self._hot_access_history: List[int] = []
+
     def _offset(self, page_id: int) -> int:
         return page_id * self.page_size * self.head_dim
 
     def _grow_pool(self, needed: int) -> None:
-        """Grow storage pools to accommodate at least <needed> page elements."""
         current_pages = self._fp16_pool.numel() // (self.page_size * self.head_dim)
         if needed <= current_pages:
             return
@@ -143,7 +175,7 @@ class KVMemoryManager:
         return self._int8_pool[o: o + self.page_size * self.head_dim].view(self.page_size, self.head_dim)
 
     def register_layout(self, layout: BlockLayout) -> None:
-        """Register a semantic block layout, assign page formats."""
+        """Register a semantic block layout, assign page formats and token bounds."""
         self.block_name_to_page_ids.clear()
         next_page = 0
         for block in layout.blocks:
@@ -154,12 +186,22 @@ class KVMemoryManager:
                 pid = next_page + i
                 policy_str = str(block.policy.value) if hasattr(block.policy, 'value') else str(block.policy)
                 fmt = _format_for_block(policy_str, block.score or 0.0, self.policy)
+
+                page_lo = block.start + i * self.page_size
+                page_hi = min(block.start + (i + 1) * self.page_size, block.end)
+                full_page = (page_lo >= block.start and page_hi <= block.end and
+                             (page_hi - page_lo) == self.page_size)
+                partial_mask = None if full_page else _page_page_mask(self.page_size, page_lo, page_hi)
+
                 self.pages[pid] = PageState(
                     page_id=pid,
                     format=fmt,
                     block_name=block.name,
                     block_policy=policy_str,
                     score=block.score or 0.0,
+                    token_start=page_lo,
+                    token_end=page_hi,
+                    partial_page_mask=partial_mask,
                 )
                 ids.append(pid)
             self.block_name_to_page_ids[block.name] = ids
@@ -171,6 +213,8 @@ class KVMemoryManager:
         block_policy: str,
         num_pages: int,
         score: float = 0.0,
+        token_start: int = 0,
+        token_end: int = 0,
     ) -> List[int]:
         pid_start = len(self.pages)
         ids = []
@@ -180,13 +224,13 @@ class KVMemoryManager:
             self.pages[pid] = PageState(
                 page_id=pid, format=fmt, block_name=block_name,
                 block_policy=block_policy, score=score,
+                token_start=token_start, token_end=token_end,
             )
             ids.append(pid)
         self.block_name_to_page_ids.setdefault(block_name, []).extend(ids)
         return ids
 
     def write_page(self, page_id: int, kv: torch.Tensor) -> None:
-        """Write KV data into the storage format assigned to this page."""
         if page_id not in self.pages:
             raise ValueError(f"page_id {page_id} not allocated")
         state = self.pages[page_id]
@@ -209,7 +253,6 @@ class KVMemoryManager:
             state.kv_fp16 = None
 
         elif state.format == PageStorageFormat.SPARSE:
-            # Store as sparse top-k in floats from max-nnz sorted by magnitude
             kv_fp16 = kv.to(torch.float16)
             flat = kv_fp16.flatten()
             k = min(self.sparse_max_nnz, flat.numel())
@@ -223,14 +266,11 @@ class KVMemoryManager:
             state.sp_nnz = k
 
     def set_page_format(self, page_id: int, new_fmt: PageStorageFormat) -> None:
-        """Change a page's storage format, re-encoding existing data if present."""
         if page_id not in self.pages:
             return
         state = self.pages[page_id]
-        old_fmt = state.format
-        if old_fmt == new_fmt:
+        if state.format == new_fmt:
             return
-
         kv_data = self._read_page_data(page_id)
         state.format = new_fmt
         state.kv_fp16 = None
@@ -240,7 +280,6 @@ class KVMemoryManager:
         state.sp_v_indices = None
         state.sp_v_values = None
         state.sp_nnz = 0
-
         if kv_data is not None:
             self.write_page(page_id, kv_data)
 
@@ -260,7 +299,55 @@ class KVMemoryManager:
             return torch.zeros(self.page_size, self.head_dim, dtype=torch.float16)
         return None
 
-    def demote_cold_pages(self, force: bool = False) -> List[int]:
+    # ──────────────────────────────────────────────
+    #  Self-tuning policy
+    # ──────────────────────────────────────────────
+
+    def _adapt_policy(self) -> None:
+        """Tune demotion/promotion thresholds based on access history."""
+        if self.step_count % self.adapt_policy_every != 0:
+            return
+
+        recent_hits = sum(self._demote_history)
+        recent_total = len(self._demote_history)
+        hit_rate = recent_hits / max(recent_total, 1)
+
+        cold_fp16 = 0
+        total_fp16 = 0
+        for s in self.pages.values():
+            if s.format not in (PageStorageFormat.FP16,):
+                continue
+            total_fp16 += 1
+            steps_since = self.step_count - s.last_access_step if s.last_access_step >= 0 else self.step_count
+            if steps_since >= self.policy.demote_cold_after_steps:
+                cold_fp16 += 1
+
+        cold_rate = cold_fp16 / max(total_fp16, 1) if total_fp16 > 0 else 0.0
+
+        if hit_rate > 0.30 and self.policy.demote_cold_after_steps < self.policy.demote_step_max:
+            self.policy.demote_cold_after_steps += 1
+        if cold_rate > 0.50 and self.policy.demote_cold_after_steps > self.policy.demote_step_min:
+            self.policy.demote_cold_after_steps -= 1
+
+        hot_count = sum(
+            1 for s in self.pages.values()
+            if s.format == PageStorageFormat.INT8 and s.access_count >= self.policy.promote_hot_after_accesses
+        )
+        if hot_count == 0 and total_fp16 > 0 and cold_rate < 0.2:
+            if self.policy.promote_hot_after_accesses < self.policy.promote_access_max:
+                self.policy.promote_hot_after_accesses += 1
+
+    def _prefetch_warmup(self) -> List[int]:
+        """Pre-emptively promote prefetch-predicted INT8 pages to FP16."""
+        warmed = []
+        for pid in self._prefetch_predictions:
+            s = self.pages.get(pid)
+            if s is not None and s.format == PageStorageFormat.INT8:
+                self.set_page_format(pid, self.policy.promote_hot_to)
+                warmed.append(pid)
+        return warmed
+
+    def demote_cold_pages(self) -> List[int]:
         """Demote infrequently accessed pages to INT8."""
         demoted = []
         for pid, state in list(self.pages.items()):
@@ -270,6 +357,8 @@ class KVMemoryManager:
             if state.last_access_step >= 0 and steps_since_access >= self.policy.demote_cold_after_steps:
                 self.set_page_format(pid, self.policy.demote_cold_to)
                 demoted.append(pid)
+                was_reaccessed = steps_since_access < self.policy.demote_cold_after_steps * 2
+                self._demote_history.append(was_reaccessed)
         return demoted
 
     def promote_hot_pages(self) -> List[int]:
@@ -283,13 +372,20 @@ class KVMemoryManager:
                 promoted.append(pid)
         return promoted
 
-    def select_pages(self) -> Tuple[List[int], torch.Tensor, torch.Tensor]:
-        """Return selected page IDs and build page metadata tensors.
+    # ──────────────────────────────────────────────
+    #  Page selection with masks
+    # ──────────────────────────────────────────────
+
+    def select_pages(
+        self,
+    ) -> Tuple[List[int], torch.Tensor, torch.Tensor, Optional[Dict[int, torch.Tensor]]]:
+        """Return selected pages, metadata, and optional per-page token masks.
 
         Returns:
             selected_pids: list of page IDs to attend to.
             page_formats_t: int32 tensor [num_pages] of format tags.
             page_ids_t: int32 tensor [1, 1, max_sel] of selected page IDs.
+            page_masks: dict of {pid: bool mask [page_size]} for partial pages, or None.
         """
         selected = [
             pid for pid, s in self.pages.items()
@@ -306,7 +402,44 @@ class KVMemoryManager:
         for i, pid in enumerate(selected):
             page_ids_t[0, 0, i] = pid
 
-        return selected, page_formats_t, page_ids_t
+        page_masks = None
+        for pid in selected:
+            s = self.pages.get(pid)
+            if s is not None and s.partial_page_mask is not None:
+                if page_masks is None:
+                    page_masks = {}
+                page_masks[pid] = s.partial_page_mask
+
+        return selected, page_formats_t, page_ids_t, page_masks
+
+    def _apply_token_masks(
+        self,
+        fp16_kv: torch.Tensor,
+        int8_kv: torch.Tensor,
+        page_ids_t: torch.Tensor,
+        page_masks: Optional[Dict[int, torch.Tensor]],
+    ) -> None:
+        """Zero out masked token rows within each partial page, in-place."""
+        if page_masks is None:
+            return
+        B, H, W = page_ids_t.shape
+        for bi in range(B):
+            for hi in range(H):
+                for wi in range(W):
+                    pid = page_ids_t[bi, hi, wi].item()
+                    if pid < 0:
+                        continue
+                    pm = page_masks.get(pid)
+                    if pm is None:
+                        continue
+                    if pid < fp16_kv.shape[0]:
+                        fp16_kv[pid, ~pm] = 0.0
+                    if pid < int8_kv.shape[0]:
+                        int8_kv[pid, ~pm] = 0
+
+    # ──────────────────────────────────────────────
+    #  Attention
+    # ──────────────────────────────────────────────
 
     def _build_attention_tensors(
         self,
@@ -350,6 +483,9 @@ class KVMemoryManager:
         query: torch.Tensor,
         demote: bool = False,
         promote: bool = False,
+        warmup: bool = False,
+        adapt: bool = False,
+        mask: bool = False,
     ) -> torch.Tensor:
         """Execute one decode step.
 
@@ -357,18 +493,23 @@ class KVMemoryManager:
             query: [B, H, D] query tensor.
             demote: run cold-page demotion before this step.
             promote: run hot-page promotion before this step.
+            warmup: run prefetch warmup before this step.
+            adapt: run policy self-tuning after this step.
+            mask: apply partial-page token masks.
 
         Returns:
             out: [B, H, D] attention output.
         """
         self.step_count += 1
 
+        if warmup:
+            self._prefetch_warmup()
         if demote:
             self.demote_cold_pages()
         if promote:
             self.promote_hot_pages()
 
-        selected, page_formats_t, page_ids_t = self.select_pages()
+        selected, page_formats_t, page_ids_t, page_masks = self.select_pages()
 
         for pid in selected:
             s = self.pages.get(pid)
@@ -384,6 +525,9 @@ class KVMemoryManager:
             sp_k_idx, sp_k_val, sp_v_idx, sp_v_val, sp_nnz, cfg,
         ) = self._build_attention_tensors()
 
+        if mask:
+            self._apply_token_masks(fp16_kv, int8_kv, page_ids_t, page_masks)
+
         page_counts_t = torch.full((1, 1), fill_value=len(selected), dtype=torch.int32)
 
         out_4d = adaptive_format_attention_reference(
@@ -394,14 +538,15 @@ class KVMemoryManager:
         self._prefetcher.record(selected)
         self._prefetch_predictions = self._prefetcher.predict_next(selected)
 
+        if adapt:
+            self._adapt_policy()
+
         return out_4d.squeeze(2)
 
     def predict_prefetch(self) -> List[int]:
-        """Return page IDs predicted for next step."""
         return self._prefetch_predictions
 
     def page_summary(self) -> Dict:
-        """Return a snapshot of page metadata and statistics."""
         fmt_counts = {f.name: 0 for f in PageStorageFormat}
         total_accesses = 0
         cold_count = 0

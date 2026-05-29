@@ -72,25 +72,32 @@ metadata and the kernel consumes it selectively:
 
 ```
 Agentic Runtime
-    |
-    v
+     |
+     v
 Semantic Block Layout
-    |
-    v
+     |
+     v
 KV Block Router
-    |        \
-    |         +--> Dynamic Scoring (query-to-block cosine)
-    |         +--> IntentQuant Precision (per-block FP16/INT8/INT4/SKIP)
-    |         +--> Prefetch Hints (next-step candidates)
-    v
+     |        \
+     |         +--> Dynamic Scoring (query-to-block cosine)
+     |         +--> IntentQuant Precision (per-block FP16/INT8/INT4/SKIP)
+     |         +--> Adaptive Format Metadata (per-page FP16/INT8/SPARSE)
+     |         +--> Prefetch Hints (next-step candidates)
+     v
 Kernel Metadata
-    |
-    v
-Selected / IntentQuant Attention Path (CPU reference)
-    |
-    v
+     |
+     v
+Selected / IntentQuant / Adaptive Format Attention Path (CPU reference)
+     |
+     v
 Future Triton/CUDA Kernel (optional prototype exists)
 ```
+
+### Adaptive Format KV Attention
+- models KV pages with different physical representations
+- supports dense FP16, INT8-style, and sparse representations
+- provides CPU/reference validation only
+- does not claim GPU speedup
 
 ### Components implemented
 
@@ -108,6 +115,7 @@ Future Triton/CUDA Kernel (optional prototype exists)
 | LLM perplexity validation harness | `experiments/llm_quality_validation.py` | Functional |
 | GPU decode benchmark harness | `experiments/gpu_decode_benchmark.py` | Functional |
 | End-to-end router demo | `examples/end_to_end_router_demo.py` | Stable |
+| Adaptive Format KV Attention Reference (CPU) | `src/.../adaptive_format_attention.py` | Stable |
 
 ### Tests
 

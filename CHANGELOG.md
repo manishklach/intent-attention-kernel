@@ -6,6 +6,9 @@
 
 ### Added
 
+- Added adaptive-format KV attention reference implementation.
+- Added tests for adaptive-format page dispatch and output behavior.
+- Added benchmark script for adaptive-format attention reference.
 - Semantic block metadata model:
   - `BlockPolicy` enum (`ALWAYS`, `ATTEND`, `SKIP`, `RECENT`, `GLOBAL`)
   - `SemanticBlock` dataclass (name, start, end, policy, score)

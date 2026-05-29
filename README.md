@@ -350,6 +350,9 @@ python benchmarks/bench_intent_quant.py
 # Run per-block IntentQuant attention reference benchmark
 python benchmarks/bench_intent_quant_attention.py
 
+# Run adaptive format KV attention reference benchmark
+python benchmarks/bench_adaptive_format_attention.py
+
 # Run optional Triton IntentQuant decode attention benchmark (requires GPU + Triton)
 python benchmarks/bench_triton_intent_quant_attention.py
 

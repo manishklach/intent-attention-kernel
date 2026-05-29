@@ -775,7 +775,8 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - [x] Selected-block attention Triton kernel (block-range iteration, CPU fallback)
 - [x] selected_block_attention dispatch (GPU Triton → CPU block-loop)
 - [x] block-level scoring functions (score_blocks, score_layout)
-- [x] pytest coverage (244 tests)
+- [x] Causal selected-block attention with position-aware masking
+- [x] pytest coverage (252 tests)
 
 ---
 
@@ -796,6 +797,9 @@ See `docs/gpu_benchmarking.md` for hardware matrix and fair-baseline guide.
 - **Partial-page bounds are not implemented.** The router selects full pages
   even if a block starts or ends mid-page. A future kernel would need
   per-page token offset masks for correctness.
+- **Causal selected-block attention is implemented** via
+  `original_kv_positions` in the position-aware mask. GPU Triton paths do not
+  yet support causal masking.
 - CPU Ratio is not a GPU speedup.
 - Analytical KV/FLOP savings are not measured GPU performance.
 - **Validation experiments use proxy KV-cache quantization** — post-hoc

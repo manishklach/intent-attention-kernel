@@ -99,10 +99,11 @@ def test_causal_does_not_look_ahead():
     assert torch.allclose(out, manual, atol=1e-5)
 
 
-def test_semantic_causal_not_implemented():
+def test_semantic_causal_matches_dense():
     q = torch.randn(1, 2, 8, 32)
     k = torch.randn(1, 2, 16, 32)
     v = torch.randn(1, 2, 16, 32)
     layout = BlockLayout([SemanticBlock("a", 0, 16, BlockPolicy.ALWAYS)])
-    with pytest.raises(NotImplementedError, match="query_positions"):
-        semantic_block_attention(q, k, v, layout, causal=True)
+    out_sel, _ = semantic_block_attention(q, k, v, layout, causal=True, return_debug=True)
+    out_dense = dense_attention(q, k, v, causal=True)
+    assert torch.allclose(out_sel, out_dense, atol=1e-5)

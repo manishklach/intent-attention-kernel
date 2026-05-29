@@ -19,6 +19,7 @@ def dense_attention(
     v: torch.Tensor,
     causal: bool = False,
     mask: Optional[torch.Tensor] = None,
+    original_kv_positions: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     scale = 1.0 / math.sqrt(q.size(-1))
     scores = torch.matmul(q, k.transpose(-2, -1)) * scale
@@ -26,12 +27,15 @@ def dense_attention(
     if causal:
         q_len = q.size(-2)
         kv_len = k.size(-2)
-        causal_mask = torch.triu(
-            torch.full(
-                (q_len, kv_len), float("-inf"), device=q.device, dtype=scores.dtype
-            ),
-            diagonal=1,
-        )
+        if original_kv_positions is not None:
+            q_positions = torch.arange(q_len, device=q.device)
+            causal_mask = q_positions[:, None] < original_kv_positions[None, :]
+            scores = scores.masked_fill(causal_mask, float("-inf"))
+        else:
+            causal_mask = torch.triu(
+                torch.full((q_len, kv_len), float("-inf"), device=q.device, dtype=scores.dtype),
+                diagonal=1,
+            )
         scores = scores + causal_mask
 
     if mask is not None:
@@ -109,15 +113,8 @@ def semantic_block_attention(
     selected_k = k.index_select(-2, idx)
     selected_v = v.index_select(-2, idx)
 
-    if causal:
-        raise NotImplementedError(
-            "Causal selected-block attention requires explicit query_positions "
-            "because selected KV indices are in original context coordinates. "
-            "The current CPU reference supports non-causal selected-block "
-            "attention only."
-        )
-
-    output = dense_attention(q, selected_k, selected_v, causal=False)
+    output = dense_attention(q, selected_k, selected_v, causal=causal,
+                             original_kv_positions=torch.tensor(selected_indices, device=k.device))
 
     if return_debug:
         debug = {
@@ -142,17 +139,20 @@ def selected_block_attention(
     semantic_ids: Optional[torch.Tensor] = None,
     scale: Optional[float] = None,
     use_gpu: bool = True,
+    causal: bool = False,
 ) -> torch.Tensor:
     """Selected block attention via block boundaries.
 
     Tries the Triton kernel if GPU available, falls back to CPU loop.
+    When causal=True, applies position-aware causal mask using block
+    start positions (assumes contiguous block tokens).
     """
-    if use_gpu and _tsb_triton_avail() and _tsb_cuda_avail() and q.is_cuda:
+    if use_gpu and _tsb_triton_avail() and _tsb_cuda_avail() and q.is_cuda and not causal:
         try:
             return _triton_selected_block_attn(q, k, v, block_starts, block_ends, scale=scale)
         except Exception:
             pass
-    return _selected_block_attention_cpu(q, k, v, block_starts, block_ends, scale=scale)
+    return _selected_block_attention_cpu(q, k, v, block_starts, block_ends, scale=scale, causal=causal)
 
 
 def _selected_block_attention_cpu(
@@ -162,14 +162,24 @@ def _selected_block_attention_cpu(
     block_starts: torch.Tensor,
     block_ends: torch.Tensor,
     scale: Optional[float] = None,
+    causal: bool = False,
 ) -> torch.Tensor:
     if scale is None:
         scale = 1.0 / math.sqrt(q.size(-1))
     out = torch.zeros_like(q)
+    q_len = q.size(-2)
+    device = q.device
+    dtype = q.dtype
     for s, e in zip(block_starts.tolist(), block_ends.tolist()):
         k_b = k[..., s:e, :]
         v_b = v[..., s:e, :]
-        scores = torch.matmul(q, k_b.transpose(-2, -1)) * scale
-        attn_w = torch.softmax(scores, dim=-1)
-        out += torch.matmul(attn_w, v_b)
+        scores = torch.matmul(q.float(), k_b.float().transpose(-2, -1)) * scale
+        if causal:
+            kv_len_in_block = e - s
+            q_pos = torch.arange(q_len, device=device)[:, None]
+            kv_orig = torch.arange(s, e, device=device)[None, :]
+            causal_mask = (q_pos < kv_orig).to(scores.dtype) * float("-inf")
+            scores = scores + causal_mask
+        attn_w = torch.softmax(scores, dim=-1).to(dtype)
+        out += torch.matmul(attn_w, v_b.to(dtype))
     return out

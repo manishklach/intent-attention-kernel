@@ -604,20 +604,17 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 </section>
 
 <section id="causal">
-<h2>Causal Attention Limitation</h2>
-<p>Non-causal selected-block attention is implemented and verified in the CPU reference. Causal selected-block attention is intentionally <strong>not implemented</strong> because selected KV tokens retain original context positions. A correct implementation requires:</p>
-<div class="limitation-box">
-<h4>Requirements for Causal Selected-Block Attention</h4>
+<h2>Causal Selected-Block Attention</h2>
+<p>Causal selected-block attention is now implemented via position-aware masking. Selected KV tokens retain their original context positions; the causal mask is computed in the original coordinate space so that a query at position <em>i</em> can only attend to KV tokens at positions ≤ <em>i</em> — even when KV tokens are non-contiguous.</p>
+<p><strong>How it works:</strong></p>
 <ul>
-<li>Explicit <code>query_positions</code> or per-query causal bounds</li>
-<li>Query-position-aware masking in original coordinates</li>
-<li>Partial-page token bounds for paged KV layouts</li>
-<li>Logical KV ordering preservation</li>
-<li>Page deduplication without reordering</li>
-<li>Causal correctness for both prefill and decode phases</li>
+<li><code>semantic_block_attention(..., causal=True)</code> passes original KV positions to <code>dense_attention</code> via the <code>original_kv_positions</code> parameter</li>
+<li>The mask is built from: <code>q_positions[:, None] &lt; original_kv_positions[None, :]</code> — set to -inf where true</li>
+<li>Works for both prefill (multiple query tokens) and decode (single query token)</li>
+<li>The CPU block-range fallback in <code>_selected_block_attention_cpu</code> also supports causal</li>
+<li>Triton GPU paths do not yet support causal (use <code>causal=False</code> on GPU)</li>
 </ul>
-</div>
-<p>Calling <code>semantic_block_attention(..., causal=True)</code> currently raises <code>NotImplementedError</code>.</p>
+<p><strong>Unsupported:</strong> Partial-page token bounds for paged KV layouts where a block starts or ends mid-page would need per-page token offset masks.</p>
 </section>
 
 <section id="impl">
@@ -647,6 +644,7 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 <div class="checklist-item"><span class="check">&#10003;</span> Selected-block range Triton kernel + CPU fallback</div>
 <div class="checklist-item"><span class="check">&#10003;</span> block-level scoring functions (score_blocks, score_layout)</div>
 <div class="checklist-item"><span class="check">&#10003;</span> selected_block_attention dispatch (GPU → CPU fallback)</div>
+<div class="checklist-item"><span class="check">&#10003;</span> Causal selected-block attention with position-aware masking</div>
 </div>
 </section>
 <section id="limits">
@@ -663,6 +661,7 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 <li>No model quality guarantee is made.</li>
 <li>Prefetch has not been validated for real latency improvement.</li>
 <li>Dynamic scoring is a heuristic, not a trained routing model.</li>
+<li>Causal selected-block attention is implemented (CPU). Triton GPU paths do not support causal yet.</li>
 <li>CPU Ratio is not a GPU speedup.</li>
 <li>Analytical KV/FLOP savings are not measured GPU performance.</li>
 </ul>
@@ -673,7 +672,7 @@ summary = quantizer.summary_table(layout, <span class="code-keyword">heads</span
 <h2>Future Roadmap</h2>
 <div class="roadmap">
 <div class="roadmap-item"><span class="phase">Phase 1</span><h4>CPU-First Correctness</h4><p>Metadata surface, block selection, dense baseline, selected-block reference, cost model, synthetic traces, benchmarks, test suite.</p></div>
-<div class="roadmap-item"><span class="phase">Phase 2</span><h4>Query-Position-Aware Causal Attention</h4><p>Implement correct causal selected-block attention with explicit query_positions or per-query causal bounds.</p></div>
+<div class="roadmap-item"><span class="phase">Phase 2</span><h4>Causal Selected-Block Attention</h4><p>Implemented via <code>original_kv_positions</code> — position-aware masking in original coordinate space for both prefill and decode. Triton GPU paths pending.</p></div>
 <div class="roadmap-item"><span class="phase">Phase 3</span><h4>Paged KV Block Table</h4><p>Support for partial-page token bounds and logical KV ordering preservation.</p></div>
 <div class="roadmap-item"><span class="phase">Phase 4</span><h4>Triton Selected-Block Attention Kernel</h4><p>Iterate only over physical pages from the block table; skip unused pages entirely.</p></div>
 <div class="roadmap-item"><span class="phase">Phase 5</span><h4>IntentQuant-KV Dequant-in-Attention Fusion</h4><p>Fuse per-page dequantization with the attention kernel to reduce memory round-trips.</p></div>

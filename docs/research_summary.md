@@ -161,7 +161,7 @@ We are honest about what has and has not been measured:
 | Limitation | Impact |
 |---|---|
 | No production Triton/CUDA kernel | All attention is CPU reference; no GPU speedup claim possible |
-| Causal selected-block attention raises `NotImplementedError` | GPT-style decode with KV-cache selection via query-position masking is not yet supported |
+| Causal selected-block attention is implemented on CPU via `original_kv_positions` | Triton GPU paths do not support causal yet. Partial-page token bounds for paged KV not implemented |
 | No real model quality validation | Perplexity proxy uses post-hoc quant/dequant on past_key_values, not real KV-cache replacement |
 | Heuristic router (not learned) | Block scoring and routing are hardcoded heuristics; no guarantee of optimality |
 | Fake quantization (not real INT8/INT4 storage) | Reconstruction metrics are analytical; real hardware quantization effects are not captured |
@@ -181,9 +181,7 @@ We are honest about what has and has not been measured:
    `experiments/gpu_decode_benchmark.py` on A100, L4, A10G, or RTX 30xx+ to
    obtain decode-step latency for SDPA, SelectedKV, and Triton paths.
 
-3. **Implement query-position-aware causal selected-block attention** — extend
-   the reference to support causal masking over partial KV, enabling GPT-style
-   decode without the current `NotImplementedError`.
+3. ~~**Implement query-position-aware causal selected-block attention**~~ — **Done.**
 
 4. **Learned router** — replace the heuristic `BlockScorer` with a lightweight
    trained model that predicts block relevance from query embedding similarity

@@ -59,6 +59,7 @@ h3{font-size:1.25rem;font-weight:600;margin-bottom:.75rem;color:var(--text-prima
 .tag-purple{background:rgba(167,139,250,0.15);color:var(--accent-purple)}
 .tag-cyan{background:rgba(88,212,232,0.15);color:var(--accent-cyan)}
 .tag-orange{background:rgba(251,191,36,0.15);color:var(--accent-orange)}
+.tag-yellow{background:rgba(251,191,36,0.12);color:#d4a017}
 .tag-green{background:rgba(110,231,183,0.15);color:var(--accent-green)}
 .callout{padding:1.5rem 2rem;border-radius:var(--radius-md);margin:1.5rem 0;border-left:3px solid}
 .callout-blue{background:rgba(107,164,255,0.06);border-color:var(--accent-blue)}
@@ -188,6 +189,7 @@ section{padding:3rem 0}
 <li><a href="#core">Core Idea</a></li>
 <li><a href="#pillars">Pillars</a></li>
 <li><a href="#architecture">Architecture</a></li>
+<li><a href="#modulediagram">Module Diagram</a></li>
 <li><a href="#comparison">Comparison</a></li>
 <li><a href="#intentquant">IntentQuant</a></li>
 <li><a href="#benchmarks">Benchmarks</a></li>
@@ -331,6 +333,191 @@ out, debug = semantic_block_attention(q, k, v, layout, <span class="code-keyword
 <div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem;margin-top:0.5rem">
 <div class="arch-node" style="text-align:center;width:100%"><span class="label">Agentic Runtime → Semantic Blocks → Policy Selection → Dynamic Scoring → Paged KV Table → IntentQuant-KV → MLA/KIVI/RoPE/SpecAttn → Prefetch Prediction → Selected-KV Attention → Future GPU Kernel</span></div>
 </div>
+</div>
+</section>
+
+<section id="modulediagram">
+<h2>Module Dependency Diagram</h2>
+<p>How the 20+ source modules relate to each other, grouped by role. Green = CPU reference, Blue = Triton/GPU optional, Yellow = Storage/Quant.</p>
+<div class="arch-diagram" style="overflow-x:auto">
+<svg viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg" style="min-width:720px;display:block;margin:0 auto">
+  <!-- Legend -->
+  <rect x="10" y="5" width="14" height="14" rx="3" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="28" y="17" fill="#9898b8" font-size="11" font-family="Inter,sans-serif">CPU Reference</text>
+  <rect x="160" y="5" width="14" height="14" rx="3" fill="#1a3a6b" stroke="#6ba4ff" stroke-width="1.2"/>
+  <text x="178" y="17" fill="#9898b8" font-size="11" font-family="Inter,sans-serif">Triton/GPU</text>
+  <rect x="290" y="5" width="14" height="14" rx="3" fill="#5a4a0a" stroke="#fbbf24" stroke-width="1.2"/>
+  <text x="308" y="17" fill="#9898b8" font-size="11" font-family="Inter,sans-serif">Storage/Quant</text>
+
+  <!-- Row 1: Metadata layer -->
+  <rect x="30" y="32" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="120" y="54" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">block_metadata.py</text>
+  <text x="120" y="66" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">BlockPolicy, SemanticBlock, BlockLayout</text>
+
+  <rect x="250" y="32" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="340" y="54" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">block_router.py</text>
+  <text x="340" y="66" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">BlockRouter, routing_to_kernel_metadata</text>
+
+  <rect x="470" y="32" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="560" y="54" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">synthetic_traces.py</text>
+  <text x="560" y="66" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">generate_agentic_layout, random_layout</text>
+
+  <rect x="690" y="32" width="180" height="34" rx="6" fill="#5a4a0a" stroke="#fbbf24" stroke-width="1.2"/>
+  <text x="780" y="54" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">cost_model.py</text>
+  <text x="780" y="66" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">savings_report, attention_flops</text>
+
+  <!-- Down arrows row 1->2 -->
+  <line x1="120" y1="66" x2="120" y2="84" stroke="#555" stroke-width="1.2"/>
+  <line x1="120" y1="78" x2="120" y2="82" stroke="#555" stroke-width="1"/>
+  <line x1="340" y1="66" x2="340" y2="84" stroke="#555" stroke-width="1.2"/>
+  <line x1="340" y1="78" x2="340" y2="82" stroke="#555" stroke-width="1"/>
+  <line x1="560" y1="66" x2="560" y2="84" stroke="#555" stroke-width="1.2"/>
+
+  <!-- Cross-connections -->
+  <line x1="300" y1="49" x2="216" y2="49" stroke="#555" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <line x1="520" y1="49" x2="436" y2="49" stroke="#555" stroke-width="0.8" stroke-dasharray="3,3"/>
+
+  <!-- Row 2: Scoring + Quant Policy -->
+  <rect x="30" y="86" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="120" y="108" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">block_scorer.py</text>
+  <text x="120" y="120" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">BlockScorer, score_blocks, score_layout</text>
+
+  <rect x="250" y="86" width="180" height="34" rx="6" fill="#5a4a0a" stroke="#fbbf24" stroke-width="1.2"/>
+  <text x="340" y="108" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">intent_quant.py</text>
+  <text x="340" y="120" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">IntentQuantizer, QuantPolicy</text>
+
+  <rect x="470" y="86" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="560" y="108" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">block_table.py</text>
+  <text x="560" y="120" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">BlockTable (paged KV mapping)</text>
+
+  <rect x="690" y="86" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="780" y="108" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">prefetch.py</text>
+  <text x="780" y="120" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">BlockPrefetcher (simulation)</text>
+
+  <!-- Down arrows row 2->3 -->
+  <line x1="120" y1="120" x2="120" y2="142" stroke="#555" stroke-width="1.2"/>
+  <line x1="340" y1="120" x2="340" y2="142" stroke="#555" stroke-width="1.2"/>
+  <line x1="560" y1="120" x2="560" y2="142" stroke="#555" stroke-width="1.2"/>
+  <line x1="780" y1="120" x2="780" y2="142" stroke="#555" stroke-width="1.2"/>
+
+  <!-- Row 3: Reference attention + new modules -->
+  <rect x="30" y="144" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="120" y="166" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">reference.py</text>
+  <text x="120" y="178" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">dense/semantic/selected-block attn</text>
+
+  <rect x="250" y="144" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="340" y="166" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">intent_quant_attention.py</text>
+  <text x="340" y="178" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">per-block quantized attn reference</text>
+
+  <rect x="470" y="144" width="180" height="34" rx="6" fill="#5a4a0a" stroke="#fbbf24" stroke-width="1.2"/>
+  <text x="560" y="166" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">kv_quant.py</text>
+  <text x="560" y="178" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">KIVI-style INT8 quant store</text>
+
+  <rect x="690" y="144" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="780" y="166" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">mla.py</text>
+  <text x="780" y="178" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">MLA block table + sparse decode</text>
+
+  <!-- Down arrows row 3->4 -->
+  <line x1="120" y1="178" x2="120" y2="200" stroke="#555" stroke-width="1.2"/>
+  <line x1="340" y1="178" x2="340" y2="200" stroke="#555" stroke-width="1.2"/>
+  <line x1="560" y1="178" x2="560" y2="200" stroke="#555" stroke-width="1.2"/>
+  <line x1="780" y1="178" x2="780" y2="200" stroke="#555" stroke-width="1.2"/>
+
+  <!-- Row 4: More modules -->
+  <rect x="30" y="202" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="120" y="224" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">rope.py</text>
+  <text x="120" y="236" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">RoPE precompute, apply, rotate</text>
+
+  <rect x="250" y="202" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="340" y="224" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">specattn.py</text>
+  <text x="340" y="236" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">SpecAttn controller (EMA, top-k)</text>
+
+  <rect x="470" y="202" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="560" y="224" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">kv_memory_manager.py</text>
+  <text x="560" y="236" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">format tracking, demotion/promotion</text>
+
+  <rect x="690" y="202" width="180" height="34" rx="6" fill="#1a6b3a" stroke="#2ecc71" stroke-width="1.2"/>
+  <text x="780" y="224" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">hf_patch.py</text>
+  <text x="780" y="236" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">HuggingFace Transformers bridge</text>
+
+  <!-- Down arrows row 4->5 -->
+  <line x1="120" y1="236" x2="120" y2="258" stroke="#555" stroke-width="1.2"/>
+  <line x1="340" y1="236" x2="340" y2="258" stroke="#555" stroke-width="1.2"/>
+  <line x1="560" y1="236" x2="560" y2="258" stroke="#555" stroke-width="1.2"/>
+  <line x1="780" y1="236" x2="780" y2="258" stroke="#555" stroke-width="1.2"/>
+
+  <!-- Row 5: GPU kernels -->
+  <rect x="30" y="260" width="220" height="34" rx="6" fill="#1a3a6b" stroke="#6ba4ff" stroke-width="1.2"/>
+  <text x="140" y="282" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">triton_kernel.py</text>
+  <text x="140" y="294" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">page-table selected-block (FP16/INT8)</text>
+
+  <rect x="280" y="260" width="220" height="34" rx="6" fill="#1a3a6b" stroke="#6ba4ff" stroke-width="1.2"/>
+  <text x="390" y="282" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">triton_selected_block_attn.py</text>
+  <text x="390" y="294" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">block-range iteration + CPU fallback</text>
+
+  <rect x="530" y="260" width="220" height="34" rx="6" fill="#1a3a6b" stroke="#6ba4ff" stroke-width="1.2"/>
+  <text x="640" y="282" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">triton_adaptive_format_attention.py</text>
+  <text x="640" y="294" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">per-page FP16/INT8/SPARSE/SKIP</text>
+
+  <rect x="780" y="260" width="150" height="34" rx="6" fill="#1a3a6b" stroke="#6ba4ff" stroke-width="1.2"/>
+  <text x="855" y="282" text-anchor="middle" fill="#e8e8f0" font-size="11" font-family="Inter,sans-serif" font-weight="600">fused_selected_quant_decode.py</text>
+  <text x="855" y="294" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">fused selected+quant+decode</text>
+
+  <!-- Down arrows row 5->6 -->
+  <line x1="140" y1="294" x2="140" y2="318" stroke="#555" stroke-width="1.2"/>
+  <line x1="390" y1="294" x2="390" y2="318" stroke="#555" stroke-width="1.2"/>
+  <line x1="640" y1="294" x2="640" y2="318" stroke="#555" stroke-width="1.2"/>
+  <line x1="855" y1="294" x2="855" y2="318" stroke="#555" stroke-width="1.2"/>
+
+  <!-- Row 6: Public API -->
+  <rect x="30" y="320" width="220" height="34" rx="8" fill="#2a1a5a" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="140" y="342" text-anchor="middle" fill="#e8e8f0" font-size="12" font-family="Inter,sans-serif" font-weight="700">__init__.py — Public API</text>
+  <text x="140" y="356" text-anchor="middle" fill="#9898b8" font-size="9" font-family="Inter,sans-serif">all public exports, 45+ symbols</text>
+
+  <!-- Side connectors: cost_model.py <-> block_router.py -->
+  <line x1="690" y1="49" x2="650" y2="49" stroke="#555" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <line x1="650" y1="49" x2="650" y2="86" stroke="#555" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <line x1="650" y1="86" x2="690" y2="86" stroke="#555" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <text x="645" y="72" text-anchor="end" fill="#686888" font-size="8" font-family="Inter,sans-serif">reads</text>
+
+  <!-- Horizontal: block_router.py -> intent_quant.py -->
+  <line x1="250" y1="103" x2="436" y2="103" stroke="#555" stroke-width="0.8" stroke-dasharray="3,3"/>
+
+  <!-- Arrow: reference.py -> block_scorer.py -->
+  <line x1="210" y1="161" x2="246" y2="161" stroke="#555" stroke-width="0.8"/>
+  <polygon points="248,157 238,161 248,165" fill="#555"/>
+
+  <!-- Cross: triton_kernel.py <-> triton_selected_block_attn.py -->
+  <line x1="250" y1="277" x2="276" y2="277" stroke="#6ba4ff" stroke-width="0.8"/>
+  <polygon points="278,273 268,277 278,281" fill="#6ba4ff" stroke="none"/>
+  <text x="264" y="271" text-anchor="middle" fill="#6ba4ff" font-size="7" font-family="Inter,sans-serif">re-exports</text>
+</svg>
+</div>
+
+<h3 style="margin-top:2rem">Component Descriptions</h3>
+
+<div class="card-grid" style="margin-top:1rem">
+<div class="card"><span class="card-tag tag-green">Core Metadata</span><h4>block_metadata.py</h4><p>Defines <code>BlockPolicy</code> (ALWAYS, ATTEND, SKIP, RECENT, GLOBAL), <code>SemanticBlock</code> (named region with bounds, policy, score), and <code>BlockLayout</code> (ordered list of blocks with validation, selection, and token-index helpers). Foundation of the entire runtime-to-kernel contract.</p></div>
+<div class="card"><span class="card-tag tag-green">Routing</span><h4>block_router.py</h4><p><code>BlockRouter</code> converts semantic context blocks into flat kernel-ready metadata: selected pages, skipped pages, precision by page, prefetch hints, and routing reasons. <code>RouterConfig</code> supports memory pressure, recency window, and per-policy overrides. Output: <code>RoutedBlock</code> list consumable by kernel metadata layer.</p></div>
+<div class="card"><span class="card-tag tag-green">Layout Generator</span><h4>synthetic_traces.py</h4><p>Generates synthetic agentic block layouts for testing: <code>generate_agentic_layout()</code> produces deterministic multi-policy layouts mimicking system prompts, retrieved docs, tool outputs, and recent turns. <code>random_layout()</code> creates random layouts for stress testing.</p></div>
+<div class="card"><span class="card-tag tag-yellow">Cost Model</span><h4>cost_model.py</h4><p>Analytical FLOP and KV-byte savings estimator. <code>savings_report()</code> computes GFLOPs, GB read, and estimated speedup vs dense for a given sparsity/quant configuration. <code>semantic_attention_cost()</code> reports per-component costs for attention compute, KV read, and output write.</p></div>
+<div class="card"><span class="card-tag tag-green">Dynamic Scoring</span><h4>block_scorer.py</h4><p><code>BlockScorer</code> class scores pre-computed key representations via cosine similarity. Functions <code>score_blocks()</code> and <code>score_layout()</code> score raw K tensor blocks by block-start/end boundaries or from a <code>BlockLayout</code> directly. Not a trained router.</p></div>
+<div class="card"><span class="card-tag tag-yellow">Policy Quant</span><h4>intent_quant.py</h4><p><code>IntentQuantizer</code> assigns per-block precision (FP16, FP8, INT8, INT4, INT4_RESIDUAL, SKIP) based on policy, score, recency, and memory pressure. <code>fake_quantize_tensor</code> / <code>fake_dequantize_tensor</code> simulate symmetric absmax quantisation. No accuracy claims.</p></div>
+<div class="card"><span class="card-tag tag-green">Page Mapping</span><h4>block_table.py</h4><p><code>BlockTable</code> simulates paged KV mapping: converts <code>BlockLayout</code> into flat page IDs with skip/dedup support. Used by the Triton page-table kernel and the routing metadata pipeline.</p></div>
+<div class="card"><span class="card-tag tag-green">Prefetch Sim</span><h4>prefetch.py</h4><p><code>BlockPrefetcher</code> simulates next-step KV page prediction using an LRU-styled access-history model. Tracks page access order and predicts likely next pages. Hit-rate benchmark only — no real latency hiding.</p></div>
+<div class="card"><span class="card-tag tag-green">Reference Attn</span><h4>reference.py</h4><p>Three attention entry points: <code>dense_attention()</code> (baseline with optional causal + mask), <code>semantic_block_attention()</code> (CPU selected-block with <code>_resolve_dynamic_scores</code>), and <code>selected_block_attention()</code> (GPU → CPU dispatch for block-range attention).</p></div>
+<div class="card"><span class="card-tag tag-green">Quant Attn Ref</span><h4>intent_quant_attention.py</h4><p><code>intent_quant_attention_reference()</code> runs per-block fake quant/dequant within the selected-block attention path. Each selected block is individually quantized, dequantized, concatenated, then attended to. <code>compare_intent_quant_to_fp16_selected()</code> reports MSE/max-abs/cosine error.</p></div>
+<div class="card"><span class="card-tag tag-yellow">KIVI Quant</span><h4>kv_quant.py</h4><p>KIVI-style asymmetric INT8 quantisation: per-channel K with configurable group size, per-token V with per-row scaling, FP16 residual window (<code>residual_r=128</code>), <code>KVQuantStore</code> with block-id indexing, dequantisation, and SNR diagnostics. Complements IntentQuant policy layer.</p></div>
+<div class="card"><span class="card-tag tag-green">MLA</span><h4>mla.py</h4><p>Multi-Head Latent Attention (DeepSeek-V2/V3): <code>MLABlockTable</code> stores per-block compressed latent vectors at dimension <code>d_c</code> (vs full <code>n_heads*d_head</code>). <code>mla_sparse_decode_reference()</code> runs compressed attention over selected latent blocks. <code>absorb_weights()</code> fuses projection matrices.</p></div>
+<div class="card"><span class="card-tag tag-green">RoPE</span><h4>rope.py</h4><p>Modular RoPE utilities: <code>precompute_rope_freqs()</code> precomputes cos/sin tables, <code>apply_rope()</code> applies rotation with automatic half-dim handling and position-id indexing, <code>rotate_half()</code> helper. Norm-preserving. CPU-only with Triton path stubbed.</p></div>
+<div class="card"><span class="card-tag tag-green">SpecAttn</span><h4>specattn.py</h4><p><code>SpecAttnController</code> implements verification-guided block selection from the Spec-Attention paper: EMA-based block importance tracking from attention weights, top-k retention of ATTEND blocks, speculative rejection sampling for draft-verify token acceptance, and acceptance-rate statistics.</p></div>
+<div class="card"><span class="card-tag tag-green">KV Memory Mgr</span><h4>kv_memory_manager.py</h4><p><code>KVMemoryManager</code> orchestrates per-page format assignment, access tracking, cold-page demotion (FP16→INT8), hot-page promotion (INT8→FP16), prefetch warmup, self-tuning format adaptation, and partial-page token masks. CPU-only prototype of the "smart KV cache" concept.</p></div>
+<div class="card"><span class="card-tag tag-green">HF Bridge</span><h4>hf_patch.py</h4><p><code>patch_model()</code> patches a HuggingFace <code>PreTrainedModel</code> to intercept <code>past_key_values</code> and apply block selection / quantization. Used by the LLM quality validation experiment. Proxy only — post-hoc quant on existing KV cache.</p></div>
+<div class="card"><span class="card-tag tag-blue">Page-Table Kernel</span><h4>triton_kernel.py</h4><p>Triton GPU kernel with CPU fallback: <code>_fwd_kernel</code> (FP16 selected-block), <code>_quant_kernel</code> (INT8 quantisation), <code>_fwd_kernel_quant</code> (inline INT8 dequant attention), <code>semantic_block_attention_triton()</code> with optional prefetch integration. <code>_can_run_gpu_kernel()</code> detects GPU availability.</p></div>
+<div class="card"><span class="card-tag tag-blue">Block-Range Kernel</span><h4>triton_selected_block_attn.py</h4><p>Selected-block Triton kernel using block-starts/ends range iteration rather than page-table indirection. <code>_fwd_kernel_selected_block</code> accumulates online softmax across variable-length KV blocks. <code>triton_semantic_attention()</code> dispatches to GPU or CPU fallback.</p></div>
+<div class="card"><span class="card-tag tag-blue">Adaptive-Format</span><h4>triton_adaptive_format_attention.py</h4><p>Triton decode kernel with per-page storage format dispatch (FP16, INT8, SPARSE, SKIP). Each selected KV page carries a format tag; the kernel loads pages according to their format, applying INT8 dequantization as needed, with online softmax accumulation.</p></div>
+<div class="card"><span class="card-tag tag-blue">Fused Decode</span><h4>fused_selected_quant_decode.py</h4><p>Experimental Triton kernel fusing runtime semantic page selection, mixed-precision (FP16/INT8/SKIP) page loading, and decode-step attention into a single GPU kernel. Consumes <code>BlockRouter</code> metadata directly. CPU fallback via <code>fused_selected_quant_decode_reference()</code>.</p></div>
+<div class="card"><span class="card-tag tag-purple">Public API</span><h4>__init__.py</h4><p>Exports 45+ public symbols: all block metadata types, router, scorer, quantizer, prefetcher, attention functions (dense, semantic, selected-block, MLA), KV quant store, RoPE, SpecAttn, cost model, memory manager, adaptive-format, Triton kernels, and trace generators.</p></div>
 </div>
 </section>
 
